@@ -139,5 +139,6 @@ dmypy.json
 **/.DS_Store
 
 #results
+/test_data
 /data
 /exp
