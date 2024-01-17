@@ -421,7 +421,7 @@ class SASRec(SequentialRecommender):
         return scores
 
 
-def call_sasrec(model_config) :
+def call_sasrec(model_config, local_data) :
     if model_config.type == 'sasrec' :
         model = SASRec(
             model_config.user_column,

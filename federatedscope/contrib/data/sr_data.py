@@ -51,7 +51,7 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
     def __getitem__(
         self,
         idx : int 
-    ) -> Tuple(np.ndarray, np.ndarray, np.ndarray) :
+    ) -> Tuple[torch.Tensor,torch.Tensor,torch.Tensor]:#Dict[str,torch.Tensor] :
         
         user_id = self.df[self.user_column].unique()[idx]
         
@@ -75,8 +75,17 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
                     constant_values = self.padding_value
                 )
         
-        return item_seq, item_seq_len, target_item
-    
+        torch.from_numpy(item_seq.astype(np.intc))
+        torch.from_numpy(item_seq_len.astype(np.intc))
+        torch.from_numpy(target_item.astype(np.intc))
+        
+        #return item_seq, item_seq_len, target_item
+        
+        return {'item_seq' : item_seq,
+                'item_seq_len' : item_seq_len,
+                'target_item' : target_item
+        }
+        
     
 def cut_by_in_sequence_length(
     sorted_df : pd.DataFrame,
@@ -97,7 +106,7 @@ def cut_by_in_sequence_length(
 def split_dataframe_into_train_valid_test(
     sorted_df : pd.DataFrame,
     user_column : str
-) -> Tuple(pd.DataFrame, pd.DataFrame, pd.DataFrame) :
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] :
 
     ## Leave One Out Strategy
     ## Original dataframe is the test set
@@ -130,25 +139,28 @@ def make_sr_dataset(
     user_num : int = None,
     item_num : int = None,
     padding_value : int = 0
-) -> Tuple(SequentialRecommendationDataset, SequentialRecommendationDataset, SequentialRecommendationDataset) :
+) -> Tuple[SequentialRecommendationDataset, SequentialRecommendationDataset, SequentialRecommendationDataset] :
     
-    if partitioned_df_path :
+    try :
         train_df = pd.read_csv(os.path.join(partitioned_df_path, 'train.csv'))
         valid_df = pd.read_csv(os.path.join(partitioned_df_path, 'valid.csv'))
         test_df = pd.read_csv(os.path.join(partitioned_df_path, 'test.csv'))
-    else :    
+    except :
         # Sort Dataframe by user and timestamp
         df = pd.read_csv(df_path, header = 0, sep = '\t')
         df = df.sort_values([user_column, timestamp_column])
 
         # Cut by min_sequence_length
-        if min_sequence_length :
-            df = cut_by_in_sequence_length(df, user_column, min_sequence_length)
+        #if min_sequence_length :
+        #    df = cut_by_in_sequence_length(df, user_column, min_sequence_length)
         
         # Split Dataframe in to train, valid, test according to leave one out strategy
         train_df, valid_df, test_df = split_dataframe_into_train_valid_test(df, user_column)
-    
+        
     if save_partitioned_df_path :
+        if not os.path.exists(save_partitioned_df_path):
+            os.makedirs(save_partitioned_df_path)
+        
         train_df.to_csv(os.path.join(save_partitioned_df_path, 'train.csv'), index = False)
         valid_df.to_csv(os.path.join(save_partitioned_df_path, 'valid.csv'), index = False)
         test_df.to_csv(os.path.join(save_partitioned_df_path, 'test.csv'), index = False)
@@ -220,15 +232,15 @@ def load_sr_data(
     )
     
     translator = BaseDataTranslator(config, client_cfgs)
-    fs_data = translator([trainset, validset, testset])
+    fs_data = translator((trainset, validset, testset))
     
     return fs_data, config
 
 
 def call_sr_data(config, client_cfgs) :
-    if config.data.type == 'sr' :
+    if config.data.type == 'sr_data' :
         data, modified_config = load_sr_data(config, client_cfgs)
         return data, modified_config
     
 
-register_data('sr', call_sr_data)
+register_data('sr_data', call_sr_data)
