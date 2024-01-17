@@ -1,0 +1,29 @@
+use_gpu: True
+device: 0
+early_stop:
+  patience: 100
+federate:
+  mode: standalone
+  total_round_num: 100
+  client_num: 6040
+data:
+  root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
+  type: sr_data
+dataloader :
+  type : base
+  batch_size : 1
+model:
+  type: sasrec
+train:
+  local_update_steps: 50
+  optimizer:
+    lr: 1.
+criterion:
+  type: CrossEntropyLoss
+trainer:
+  type: sasrec_trainer
+eval:
+  freq: 100
+  metrics: []
+  best_res_update_round_wise_key: test_avg_loss
+  count_flops: False
