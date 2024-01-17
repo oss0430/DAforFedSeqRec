@@ -1,44 +1,31 @@
 from federatedscope.register import register_trainer
-from federatedscope.core.trainers import BaseTrainer
+from federatedscope.core.trainers import GeneralTorchTrainer
 
 import torch
 
-class SASRecTrainer(BaseTrainer):
+class SASRecTrainer(GeneralTorchTrainer):
+    """
+    SASRecTrainer is used for SASRec model and SRDataset
+    """
     
-    def __init__(self, model : torch.nn.Module, data, device, **kwargs) :
-        self.model = model
-        self.data = data
-        self.device = device
-        self.kwargs = kwargs
-        self.criterion = torch.nn.CrossEntropyLoss()
-    
-      
-    def train(self):
+    def _hook_on_batch_forward(self, ctx):
+        ## TODO: data_batch returns all the concatenated data of item_seq, item_seq_len, target_item
+        data_batch = ctx.data_batch
+        item_seq = data_batch["item_seq"]
+        item_seq_len = data_batch["item_seq_len"]
+        target_item = data_batch["target_item"]
         
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+        item_seq, item_seq_len, target_item = item_seq.to(ctx.device), item_seq_len.to(ctx.device), target_item.to(ctx.device)
         
-        self.model.to(self.device)
-        self.model.train()
+        outputs = ctx.model(item_seq, item_seq_len)
+        target_embedding = ctx.model.item_embedding(target_item)
+        ctx.loss_batch = ctx.criterion(outputs, target_embedding)
         
-        total_loss = num_samples = 0
-        
-        for item_seq, item_seq_len, target_item in self.data['train'] :
-            item_seq, item_seq_len, target_item = item_seq.to(self.device), item_seq_len.to(self.device), target_item.to(self.device)
-            
-            outputs = self.model(item_seq, item_seq_len)
-            target_embedding = self.model.item_embedding(target_item)
-            loss = self.criterion(outputs, target_embedding)
-            
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            
-            total_loss += loss.item() * target_item.shape[0]
-            num_samples += target_item.shape[0]
-        
-        return num_samples, self.model.cpu().state_dict(), \
-            {'loss_total': total_loss, 'avg_loss': total_loss/float(num_samples)}
+        ctx.batch_size = len(target_item)
 
+    
+    #def _hook_on_fit_end(self, ctx):
+    
     
     def ndcg_k(self, scores, target_item, k=10):
         
@@ -79,19 +66,11 @@ class SASRecTrainer(BaseTrainer):
                 scores = self.model.full_sort_predict(item_seq, item_seq_len)
                 total_ndcg = self.ndcg_k(scores, target_item, k=50)
                 
-                
-    
-    def update(self, model_parameters, strict=False):
-        self.model.load_state_dict(model_parameters, strict)
-
-
-    def get_model_para(self):
-        return self.model.cpu().state_dict()
     
     
 def call_sasrec_trainer(trainer_type):
-    if trainer_type == "sasrec":
+    if trainer_type == "sasrec_trainer":
         return SASRecTrainer
     
 
-register_trainer('sasrec', call_sasrec_trainer)
+register_trainer('sasrec_trainer', call_sasrec_trainer)
