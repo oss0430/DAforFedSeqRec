@@ -42,7 +42,13 @@ def get_shape_from_data(data, model_config, backend='torch'):
             return data['data'].x.shape, num_label, num_edge_features
     elif model_config.type.lower() in ['atc_model']:
         return None
-
+    elif model_config.type.lower() in ['sasrec'] :
+        ## Added my model for special case
+        import torch
+        if issubclass(type(data['test']), torch.utils.data.DataLoader):
+            data_representative = next(iter(data['test']))
+            return data_representative['item_seq'].shape, data_representative['item_seq_len'].shape, data_representative['target_item'].shape
+            
     if isinstance(data, dict):
         keys = list(data.keys())
         if 'test' in keys:
