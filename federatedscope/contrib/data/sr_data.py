@@ -60,6 +60,7 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
         ## Considering the df is sorted by user_index and timestamp
         user_interaction = user_df[self.item_column].values
         
+        user_id = np.array([user_id])
         item_seq = user_interaction[:-1]
         item_seq_len = np.array([len(item_seq)])
         target_item = np.array([user_interaction[-1]])
@@ -74,14 +75,15 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
                     (0, self.max_sequence_length - len(item_seq)),
                     constant_values = self.padding_value
                 )
-        
-        torch.from_numpy(item_seq.astype(np.intc))
-        torch.from_numpy(item_seq_len.astype(np.intc))
-        torch.from_numpy(target_item.astype(np.intc))
-        
+        user_id = torch.tensor(user_id, dtype=torch.int64)
+        item_seq = torch.tensor(item_seq, dtype=torch.int64)
+        item_seq_len = torch.tensor(item_seq_len, dtype=torch.int64)
+        target_item = torch.tensor(target_item, dtype=torch.int64)
         #return item_seq, item_seq_len, target_item
         
-        return {'item_seq' : item_seq,
+        return {   
+                'user_id' : user_id,
+                'item_seq' : item_seq,
                 'item_seq_len' : item_seq_len,
                 'target_item' : target_item
         }
