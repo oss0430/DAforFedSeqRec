@@ -342,8 +342,8 @@ class SASRec(SequentialRecommender):
 
         # define layers and loss
         self.item_embedding = nn.Embedding(
-            self.n_items, self.hidden_size, padding_idx=0
-        )
+            self.n_items + 1, self.hidden_size, padding_idx=0
+        ) ## Added +1 for padding_idx
         if self.use_position == True:
             self.position_embedding = nn.Embedding(self.max_seq_length, self.hidden_size)
         self.trm_encoder = TransformerEncoder(

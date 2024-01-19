@@ -3,19 +3,23 @@ from federatedscope.register import register_metric
 import numpy as np
 
 
+## NOTE:
+## This file is not being loaded by __itit__.py in contrib/metrics
+## We moved content to example.py
+
 def ndcg_k(
     y_true : np.ndarray, ## Batch of target items  B X 1
     y_pred : np.ndarray, ## Batch of predicted items B X N
     k : int = 5
 ) -> np.ndarray : ## Batch of ndcg_k scores B X 1
 
-    item_recommendation_rank = np.argsort(np.argsort(y_pred, axis = 1), axis = 1)[:, -k:]
-    rank_for_each_true = np.take(item_recommendation_rank, y_true, axis = 1)
+    item_recommendation_rank = np.argsort(np.argsort(y_pred, axis = 1), axis = 1)
+    rank_for_each_true = np.take(item_recommendation_rank, y_true)
     
     ## Next item Prediction only 1 true item
     ndcgs = np.zeros(rank_for_each_true.shape[0])
     for i in range(rank_for_each_true.shape[0]):
-        if rank_for_each_true[i].items > k :
+        if rank_for_each_true[i] > k :
             ndcg = 0
         else :
             ndcg = 1 / np.log2(rank_for_each_true[i] + 2)
@@ -30,12 +34,12 @@ def recall_k(
     k : int = 5
 ) -> np.ndarray : ## Batch of ndcg_k scores B X 1
     
-    item_recommendation_rank = np.argsort(np.argsort(y_pred, axis = 1), axis = 1)[:, -k:]
-    rank_for_each_true = np.take(item_recommendation_rank, y_true, axis = 1)
+    item_recommendation_rank = np.argsort(np.argsort(y_pred, axis = 1), axis = 1)
+    rank_for_each_true = np.take(item_recommendation_rank, y_true)
     
     recalls = np.zeros(rank_for_each_true.shape[0])
     for i in range(rank_for_each_true.shape[0]):
-        if rank_for_each_true[i].items > k :
+        if rank_for_each_true[i] > k :
             recall = 0
         else :
             recall = 1

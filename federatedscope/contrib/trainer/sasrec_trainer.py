@@ -3,6 +3,8 @@ from federatedscope.core.trainers import GeneralTorchTrainer
 from federatedscope.core.trainers.enums import MODE, LIFECYCLE
 from federatedscope.core.trainers.trainer import Trainer
 from federatedscope.core.trainers.context import CtxVar
+from federatedscope.core.auxiliaries.optimizer_builder import get_optimizer
+from federatedscope.core.auxiliaries.scheduler_builder import get_scheduler
 
 import torch
 import numpy as np
@@ -12,6 +14,46 @@ class SASRecTrainer(GeneralTorchTrainer):
     """
     SASRecTrainer is used for SASRec model and SRDataset
     """
+    def _hook_on_fit_start_init(self, ctx):
+        """
+        Note:
+          The modified attributes and according operations are shown below:
+            ==================================  ===========================
+            Attribute                           Operation
+            ==================================  ===========================
+            ``ctx.model``                       Move to ``ctx.device``
+            ``ctx.optimizer``                   Initialize by ``ctx.cfg``
+            ``ctx.scheduler``                   Initialize by ``ctx.cfg``
+            ``ctx.loss_batch_total``            Initialize to 0
+            ``ctx.loss_regular_total``          Initialize to 0
+            ``ctx.num_samples``                 Initialize to 0
+            ``ctx.ys_true``                     Initialize to ``[]``
+            ``ctx.ys_prob``                     Initialize to ``[]``
+            ==================================  ===========================
+        """
+        # prepare model and optimizer
+        ctx.model.to(ctx.device)
+
+        if ctx.cur_mode in [MODE.TRAIN, MODE.FINETUNE]:
+            # Initialize optimizer here to avoid the reuse of optimizers
+            # across different routines
+            ctx.optimizer = get_optimizer(ctx.model,
+                                          **ctx.cfg[ctx.cur_mode].optimizer)
+            ctx.scheduler = get_scheduler(ctx.optimizer,
+                                          **ctx.cfg[ctx.cur_mode].scheduler)
+
+        # TODO: the number of batch and epoch is decided by the current mode
+        #  and data split, so the number of batch and epoch should be
+        #  initialized at the beginning of the routine
+
+        # prepare statistics
+        ctx.loss_batch_total = CtxVar(0., LIFECYCLE.ROUTINE)
+        ctx.loss_regular_total = CtxVar(0., LIFECYCLE.ROUTINE)
+        ctx.num_samples = CtxVar(0, LIFECYCLE.ROUTINE)
+        ctx.ys_true = CtxVar([], LIFECYCLE.ROUTINE)
+        ctx.ys_prob = CtxVar([], LIFECYCLE.ROUTINE)
+        ctx.ys_pred = CtxVar([], LIFECYCLE.ROUTINE)
+        
     
     def _hook_on_batch_forward(self, ctx):
 
