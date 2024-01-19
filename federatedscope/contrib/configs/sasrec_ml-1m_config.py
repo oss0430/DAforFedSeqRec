@@ -41,11 +41,10 @@ def extend_cfg_for_sasrec_ml1m(cfg) :
     cfg.data.user_num = 6040
     cfg.data.item_num = 3952
     cfg.data.padding_value = 0
-    
+    cfg.data.consistent_label_distribution = True
     cfg.data.splitter_args = None
     cfg.data.splitter = 'sr_splitter'
     cfg.data.splits = None ## Leave one out
-    cfg.data.consistent_label_distribution = None ## TODO: refer to basetranslator.split_to_client() line 115
     ## --------- Added for outdate configs -----------------
     ##      refer to federatedscope/core/configs/cfg_data.py
     cfg.data.loader = ''

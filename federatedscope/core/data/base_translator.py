@@ -114,7 +114,20 @@ class BaseDataTranslator:
             split_train = self.splitter(train)
             if self.global_cfg.data.consistent_label_distribution:
                 try:
-                    train_label_distribution = [[j[1] for j in x]
+                    if self.global_cfg.data.type == 'sr_data' :
+                        ## Added for sr_data label_distribution, we don't care about the label,
+                        ## but the user_idx must be same for all client
+                        from torch.utils.data import DataLoader
+                        train_label_distribution = []
+                        batch_size = 1
+                        for sr_dataset in split_train:
+                            data_loader = DataLoader(sr_dataset, batch_size=batch_size, shuffle=False)
+                            current_split_user_ids = []
+                            for data in data_loader:
+                                current_split_user_ids.append(data['user_id'].item())
+                            train_label_distribution.append(current_split_user_ids)
+                    else :
+                        train_label_distribution = [[j[1] for j in x]
                                                 for x in split_train]
                 except:
                     logger.warning(
