@@ -21,6 +21,10 @@ def wrap_attacker_trainer(base_trainer, config):
     elif config.attack.attack_method.lower() == 'gaussian_noise':
         from federatedscope.attack.trainer import wrap_GaussianAttackTrainer
         return wrap_GaussianAttackTrainer(base_trainer)
+    elif config.attack.attack_method.lower() == 'random_sasrec':
+        ## Random SASRec Attack
+        from federatedscope.attack.trainer import wrap_rand_SASRecTrainer
+        return wrap_rand_SASRecTrainer(base_trainer)
     else:
         raise ValueError('Trainer {} is not provided'.format(
             config.attack.attack_method))
