@@ -63,7 +63,9 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
         user_id = np.array([user_id])
         item_seq = user_interaction[:-1]
         item_seq_len = np.array([len(item_seq)])
-        target_item = np.array([user_interaction[-1]])
+        
+        ## Note! Maybe we don't need to make target_item as batchsize x 1 but just batchsize
+        target_item = np.array(user_interaction[-1])
         
         if self.max_sequence_length is not None :
             if len(item_seq) > self.max_sequence_length :
