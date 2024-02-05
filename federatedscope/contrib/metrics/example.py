@@ -15,13 +15,13 @@ def call_my_metric(types):
         return METRIC_NAME, metric_builder, the_larger_the_better
 
 def ndcg_k(
-    y_true : np.ndarray, ## Batch of target items  B X 1
+    y_true : np.ndarray, ## Batch of target items  B
     y_pred : np.ndarray, ## Batch of predicted items B X N
     k : int = 5
 ) -> np.ndarray : ## Batch of ndcg_k scores B X 1
 
-    item_recommendation_rank = np.argsort(np.argsort(y_pred, axis = 1), axis = 1)
-    rank_for_each_true = np.take(item_recommendation_rank, y_true)
+    item_recommendation_rank = np.argsort(np.argsort(-y_pred, axis = 1), axis = 1) ## - for descending ordering
+    rank_for_each_true = np.take_along_axis(item_recommendation_rank, y_true.reshape(-1,1), axis = 1)
     
     ## Next item Prediction only 1 true item
     ndcgs = np.zeros(rank_for_each_true.shape[0])
@@ -36,13 +36,13 @@ def ndcg_k(
         
 
 def recall_k(
-    y_true : np.ndarray, ## Batch of target items  B X 1
+    y_true : np.ndarray, ## Batch of target items  B
     y_pred : np.ndarray, ## Batch of predicted items B X N
     k : int = 5
 ) -> np.ndarray : ## Batch of ndcg_k scores B X 1
     
-    item_recommendation_rank = np.argsort(np.argsort(y_pred, axis = 1), axis = 1)
-    rank_for_each_true = np.take(item_recommendation_rank, y_true)
+    item_recommendation_rank = np.argsort(np.argsort(-y_pred, axis = 1), axis = 1) ## - for descending ordering
+    rank_for_each_true = np.take_along_axis(item_recommendation_rank, y_true.reshape(-1,1), axis = 1)
     
     recalls = np.zeros(rank_for_each_true.shape[0])
     for i in range(rank_for_each_true.shape[0]):

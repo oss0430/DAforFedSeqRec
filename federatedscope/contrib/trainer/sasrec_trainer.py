@@ -67,15 +67,14 @@ class SASRecTrainer(GeneralTorchTrainer):
         outputs = ctx.model(item_seq, item_seq_len)
         pred = ctx.model.full_sort_predict(item_seq, item_seq_len)
         
-        ctx.y_true = CtxVar(target_item, LIFECYCLE.BATCH)
-        ctx.y_pred = CtxVar(pred, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
-        
         test_item_emb = ctx.model.item_embedding.weight
         logits = torch.matmul(outputs, test_item_emb.transpose(0,1))
         
         ctx.loss_batch = ctx.criterion(logits, target_item)
-        ## TODO : target_item & logits out of miss match shape
-        ##        [1 X 1] & [1 X 3952]
+        
+        ctx.y_true = CtxVar(target_item, LIFECYCLE.BATCH)
+        ctx.y_pred = CtxVar(logits, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
+
         ctx.batch_size = len(target_item)
 
     
