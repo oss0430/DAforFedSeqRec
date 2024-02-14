@@ -142,3 +142,7 @@ dmypy.json
 /test_data
 /data
 /exp
+
+#debug
+.vscode
+.vscode/launch.json
