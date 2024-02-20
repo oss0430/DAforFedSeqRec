@@ -11,48 +11,74 @@ from federatedscope.core.trainers.context import CtxVar
 logger = logging.getLogger(__name__)
 
 
-def wrap_rand_SASRecTrainer(
+def wrap_SrTargetedRandomAttackSasrecTrainer(
     base_trainer: Type[GeneralTorchTrainer] ## SASRecTrainer
 ) -> Type[GeneralTorchTrainer] :
     ## SASRec Trainer inherits from GeneralTorchTrainer
     
-    base_trainer.ctx.target_item_id = \
+    base_trainer.ctx.attack_target_item_id = \
         base_trainer.cfg.attack.target_item_id
         
         
     # ---- action-level plug-in -------
     
-    base_trainer.register_hook_in_train(new_hook = create_random_sequence_poison,
+    base_trainer.register_hook_in_train(new_hook = register_random_sequence_poison,
                                         trigger = 'on_batch_start',
                                         insert_mode = -1)
     base_trainer.register_hook_in_train(new_hook = hook_on_batch_forward_poison_data,
                                         trigger = 'on_batch_forward',
                                         insert_mode = -1)
-
-
-def create_random_sequence_poison(ctx):
-    """
-    Create poisonous sequence data, according to model's max_seq_length and target_item_id
-    """
     
+    return base_trainer
+
+
+def get_random_length_random_sequence(ctx):
+    
+    padding_idx = 0
     max_seq_length = ctx.model.max_seq_length
     n_items = ctx.model.n_items
     
     data_batch = ctx.data_batch
     item_seq = data_batch["item_seq"]
     item_seq_len = data_batch["item_seq_len"]
-    target_item = data_batch["target_item"]
     
-    random_sequence = torch.randint_like(ctx.item_seq,
-                                         high = n_items,
-                                         low = ctx.model.padding_idx + 1)
+    random_sequence = torch.randint_like(item_seq,
+                                            high = n_items,
+                                            low = 1)
     ## padding are always the lowest number in embedding
     
-    poison_target_item = torch.zeros_like(ctx.target_item)
-    poison_target_item = poison_target_item + ctx.target_item_id
+    batch_size = len(random_sequence)
+    random_seq_len = torch.zeros_like(item_seq_len)
+    
+    for i in range(batch_size):
+        length = torch.randint(low = 1,
+                                high = max_seq_length + 1,
+                                size = (1,)).item()
+        random_sequence[i, length:] = padding_idx
+        random_seq_len[i][0] = length
+        
+    return random_sequence, random_seq_len
+
+
+def register_random_sequence_poison(ctx):
+    """
+    Create & Register poisonous sequence data, according to model's max_seq_length and target_item_id
+    """
+    
+    data_batch = ctx.data_batch
+    item_seq = data_batch["item_seq"]
+    item_seq_len = data_batch["item_seq_len"]
+    target_item = data_batch["target_item"]
+    attack_target_item_id = ctx.attack_target_item_id
+    
+    random_sequence, random_seq_len = get_random_length_random_sequence(ctx)
+    ## padding are always the lowest number in embedding
+    
+    poison_target_item = torch.zeros_like(target_item)
+    poison_target_item = poison_target_item + attack_target_item_id
     
     ctx.poison_item_seq = random_sequence
-    ctx.poison_item_seq_len = item_seq_len
+    ctx.poison_item_seq_len = random_seq_len
     ctx.poison_target_item = poison_target_item
     
 

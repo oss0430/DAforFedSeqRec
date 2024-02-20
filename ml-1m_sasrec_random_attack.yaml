@@ -6,8 +6,8 @@ federate:
   mode: standalone
   method : FedAvg
   total_round_num: 200
-  client_num: 6040
-  sample_client_num: 1
+  client_num: 6050 # 6040 + 10
+  sample_client_num: 200
   sample_client_rate: -1.0
   make_global_eval : True # without it it would be too slow
 data:
@@ -20,7 +20,7 @@ dataloader :
 model:
   type: sasrec
 train:
-  local_update_steps: 1
+  local_update_steps: 60
   optimizer:
     lr: 0.001
 criterion:
@@ -28,8 +28,12 @@ criterion:
 trainer:
   type: sasrec_trainer
 eval:
-  freq: 1
-  metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
+  freq: 100
+  metrics: ['recall_10','recall_20','ndcg_10','ndcg_20','poison_recall_10','poison_ndcg_10']
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss
   count_flops: False
+attack :
+  attack_method : 'sr_targeted_random_sasrec'
+  attacker_id : [6041,6042,6043,6044,6045,6046,6047,6048,6049,6050]
+  target_item_id : 3000

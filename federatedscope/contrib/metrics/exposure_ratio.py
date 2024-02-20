@@ -3,6 +3,7 @@ from typing import Any, Dict, Tuple
 import numpy as np
 
 
+
 def ndcg_k(
     y_true : np.ndarray, ## Batch of target items  B
     y_pred : np.ndarray, ## Batch of predicted items B X N
@@ -44,72 +45,85 @@ def recall_k(
     return recalls
 
 
-def load_ndcg_10(ctx , y_true : np.ndarray, y_pred : np.ndarray, y_prob, **kwargs):
+
+def load_poison_ndcg_10(ctx, y_true : np.ndarray, y_pred : np.ndarray, y_prob, **kwargs):
     """
     Load ndcg@10 metric.
     """
-    results = ndcg_k(y_true, y_pred, k = 10).mean()
+    if ctx.cur_split == 'train':
+        results = None
+    else :
+        poison_true = ctx['poison_' + ctx.cur_split + '_y_true']
+        results = ndcg_k(poison_true, y_pred, k = 10).mean()
     
     return results
 
 
-def load_ndcg_20(ctx , y_true : np.ndarray, y_pred : np.ndarray, y_prob, **kwargs):
+def load_poison_ndcg_20(ctx, y_true : np.ndarray, y_pred : np.ndarray, y_prob, **kwargs):
     """
     Load ndcg@20 metric.
     """
-    results = ndcg_k(y_true, y_pred, k = 20).mean()
+    
+    if ctx.cur_split == 'train':
+        results = None
+    else :
+        poison_true = ctx['poison_' + ctx.cur_split + '_y_true']
+        results = ndcg_k(poison_true, y_pred, k = 20).mean()
     
     return results
 
 
-def load_recall_10(ctx, y_true, y_pred, y_prob, **kwargs):
+def load_poison_recall_10(ctx, y_true, y_pred, y_prob, **kwargs):
     """
     Load recall@10 metric.
     """
-    results = recall_k(y_true, y_pred, k = 10).mean()
+    if ctx.cur_split == 'train':
+        results = None
+    else :
+        poison_true = ctx['poison_' + ctx.cur_split + '_y_true']
+        results = recall_k(poison_true, y_pred, k = 10).mean()
     
     return results
 
 
-def load_recall_20(ctx, y_true, y_pred, y_prob, **kwargs):
+def load_poison_recall_20(ctx, y_true, y_pred, y_prob, **kwargs):
     """
     Load recall@20 metric.
     """
-    
-    results = recall_k(y_true, y_pred, k = 20).mean()
+    if ctx.cur_split == 'train':
+        results = None
+    else :
+        poison_true = ctx['poison_' + ctx.cur_split + '_y_true']
+        results = recall_k(poison_true, y_pred, k = 20).mean()
     
     return results
 
 
-def call_recall_10(types):
-    if 'recall_10' in types:
+def call_poison_recall_10(types):
+    if 'poison_recall_10' in types:
         the_larger_the_better = True
-        return 'recall_10', load_recall_10, the_larger_the_better
+        return 'poison_recall_10', load_poison_recall_10, the_larger_the_better
     
     
-def call_recall_20(types):
-    if 'recall_20' in types:
+def call_poison_recall_20(types):
+    if 'poison_recall_20' in types:
         the_larger_the_better = True
-        return 'recall_20', load_recall_20, the_larger_the_better
+        return 'poison_recall_20', load_poison_recall_20, the_larger_the_better
     
     
-def call_ndcg_10(types):
-    if 'ndcg_10' in types:
+def call_poison_ndcg_10(types):
+    if 'poison_ndcg_10' in types:
         the_larger_the_better = True
-        return 'ndcg_10', load_ndcg_10, the_larger_the_better
+        return 'poison_ndcg_10', load_poison_ndcg_10, the_larger_the_better
     
     
-def call_ndcg_20(types):
-    if 'ndcg_20' in types:
+def call_poison_ndcg_20(types):
+    if 'poison_ndcg_20' in types:
         the_larger_the_better = True
-        return 'ndcg_20', load_ndcg_20, the_larger_the_better
+        return 'poison_ndcg_20', load_poison_ndcg_20, the_larger_the_better
 
 
-register_metric('recall_10', call_recall_10)
-register_metric('recall_20', call_recall_20)
-register_metric('ndcg_10', call_ndcg_10)
-register_metric('ndcg_20', call_ndcg_20)
-
-
-
-
+register_metric('poison_recall_10', call_poison_recall_10)
+register_metric('poison_recall_20', call_poison_recall_20)
+register_metric('poison_ndcg_10', call_poison_ndcg_10)
+register_metric('poison_ndcg_20', call_poison_ndcg_20)

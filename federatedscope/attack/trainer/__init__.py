@@ -4,7 +4,8 @@ from federatedscope.attack.trainer.PIA_trainer import *
 from federatedscope.attack.trainer.backdoor_trainer import *
 from federatedscope.attack.trainer.benign_trainer import *
 from federatedscope.attack.trainer.gaussian_attack_trainer import *
-from federatedscope.attack.trainer.random_sasrec_attack_trainer import *
+from federatedscope.attack.trainer.sr_targeted_random_sasrec_attack_trainer import *
+from federatedscope.attack.trainer.sr_benign_trainer import *
 
 
 __all__ = [
@@ -16,7 +17,11 @@ __all__ = [
     'hook_on_batch_backward_invert_gradient',
     'hook_on_fit_start_loss_on_target_data', 'wrap_backdoorTrainer',
     'wrap_benignTrainer', 'wrap_GaussianAttackTrainer',
+    
+    ## benign Sr
+    'wrap_benignSrTrainer',
+    
     ## Random SASRec Attack
-    'wrap_rand_SASRecTrainer', 'create_random_sequence_poison',
+    'wrap_SrTargetedRandomAttackSasrecTrainer', 'register_random_sequence_poison',
     'hook_on_batch_forward_poison_data',
 ]

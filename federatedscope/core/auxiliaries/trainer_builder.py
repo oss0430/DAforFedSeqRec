@@ -232,16 +232,23 @@ def get_trainer(model=None,
         from federatedscope.attack.trainer import wrap_benignTrainer
         trainer = wrap_benignTrainer(trainer)
 
+    ## Note added sr_targeted
+    if 'sr_targeted' in config.attack.attack_method :
+        from federatedscope.attack.trainer import wrap_benignSrTrainer
+        trainer = wrap_benignSrTrainer(trainer)
+    
     if is_attacker:
         if 'backdoor' in config.attack.attack_method:
             logger.info('--------This client is a backdoor attacker --------')
+        elif 'sr_targeted' in config.attack.attack_method:
+            logger.info('--------This client is a sr-backdoor attacker --------')
         else:
             logger.info('-------- This client is an privacy attacker --------')
         from federatedscope.attack.auxiliary.attack_trainer_builder \
             import wrap_attacker_trainer
         trainer = wrap_attacker_trainer(trainer, config)
 
-    elif 'backdoor' in config.attack.attack_method:
+    elif 'backdoor' in config.attack.attack_method or 'sr_targeted' in config.attack.attack_method:
         logger.info(
             '----- This client is a benign client for backdoor attacks -----')
 
