@@ -6,7 +6,7 @@ from federatedscope.attack.trainer.benign_trainer import *
 from federatedscope.attack.trainer.gaussian_attack_trainer import *
 from federatedscope.attack.trainer.sr_targeted_random_sasrec_attack_trainer import *
 from federatedscope.attack.trainer.sr_benign_trainer import *
-
+from federatedscope.attack.trainer.sr_targeted_segment_sasrec_attack_trainer import *
 
 __all__ = [
     'wrap_GANTrainer', 'hood_on_fit_start_generator',
@@ -21,7 +21,10 @@ __all__ = [
     ## benign Sr
     'wrap_benignSrTrainer',
     
-    ## Random SASRec Attack
+    ## Targeted Random SASRec Attack
     'wrap_SrTargetedRandomAttackSasrecTrainer', 'register_random_sequence_poison',
     'hook_on_batch_forward_poison_data',
+    
+    ## Targeted Segment SASRec Attack
+    'wrap_SrTargetedSegmentAttackSasrecTrainer'
 ]

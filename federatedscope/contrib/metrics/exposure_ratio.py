@@ -73,6 +73,20 @@ def load_poison_ndcg_20(ctx, y_true : np.ndarray, y_pred : np.ndarray, y_prob, *
     return results
 
 
+def load_poison_ndcg_50(ctx, y_true : np.ndarray, y_pred : np.ndarray, y_prob, **kwargs):
+    """
+    Load ndcg@20 metric.
+    """
+    
+    if ctx.cur_split == 'train':
+        results = None
+    else :
+        poison_true = ctx['poison_' + ctx.cur_split + '_y_true']
+        results = ndcg_k(poison_true, y_pred, k = 50).mean()
+    
+    return results
+
+
 def load_poison_recall_10(ctx, y_true, y_pred, y_prob, **kwargs):
     """
     Load recall@10 metric.
@@ -99,6 +113,20 @@ def load_poison_recall_20(ctx, y_true, y_pred, y_prob, **kwargs):
     return results
 
 
+def load_poison_recall_50(ctx, y_true, y_pred, y_prob, **kwargs):
+    """
+    Load recall@20 metric.
+    """
+    if ctx.cur_split == 'train':
+        results = None
+    else :
+        poison_true = ctx['poison_' + ctx.cur_split + '_y_true']
+        results = recall_k(poison_true, y_pred, k = 50).mean()
+    
+    return results
+
+
+
 def call_poison_recall_10(types):
     if 'poison_recall_10' in types:
         the_larger_the_better = True
@@ -111,6 +139,12 @@ def call_poison_recall_20(types):
         return 'poison_recall_20', load_poison_recall_20, the_larger_the_better
     
     
+def call_poison_recall_50(types):
+    if 'poison_recall_50' in types:
+        the_larger_the_better = True
+        return 'poison_recall_50', load_poison_recall_50, the_larger_the_better
+    
+    
 def call_poison_ndcg_10(types):
     if 'poison_ndcg_10' in types:
         the_larger_the_better = True
@@ -121,9 +155,17 @@ def call_poison_ndcg_20(types):
     if 'poison_ndcg_20' in types:
         the_larger_the_better = True
         return 'poison_ndcg_20', load_poison_ndcg_20, the_larger_the_better
+    
+    
+def call_poison_ndcg_50(types):
+    if 'poison_ndcg_50' in types:
+        the_larger_the_better = True
+        return 'poison_ndcg_50', load_poison_ndcg_50, the_larger_the_better
 
 
 register_metric('poison_recall_10', call_poison_recall_10)
 register_metric('poison_recall_20', call_poison_recall_20)
+register_metric('poison_recall_50', call_poison_recall_50)
 register_metric('poison_ndcg_10', call_poison_ndcg_10)
 register_metric('poison_ndcg_20', call_poison_ndcg_20)
+register_metric('poison_ndcg_50', call_poison_ndcg_50)

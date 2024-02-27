@@ -25,6 +25,11 @@ def wrap_attacker_trainer(base_trainer, config):
         ## Random SASRec Attack
         from federatedscope.attack.trainer import wrap_SrTargetedRandomAttackSasrecTrainer
         return wrap_SrTargetedRandomAttackSasrecTrainer(base_trainer)
+    elif config.attack.attack_method.lower() == 'sr_targeted_segment_sasrec':
+        ## Segment SASRec Attack
+        from federatedscope.attack.trainer import wrap_SrTargetedSegmentAttackSasrecTrainer
+        return wrap_SrTargetedSegmentAttackSasrecTrainer(base_trainer)
+    
     else:
         raise ValueError('Trainer {} is not provided'.format(
             config.attack.attack_method))
