@@ -29,6 +29,18 @@ def wrap_attacker_trainer(base_trainer, config):
         ## Segment SASRec Attack
         from federatedscope.attack.trainer import wrap_SrTargetedSegmentAttackSasrecTrainer
         return wrap_SrTargetedSegmentAttackSasrecTrainer(base_trainer)
+    elif config.attack.attack_method.lower() == 'sr_targeted_labelflip_sasrec':
+        ## Label Flipping Attack
+        from federatedscope.attack.trainer import wrap_SrTargetedLabelFlipAttackSasrecTrainer
+        return wrap_SrTargetedLabelFlipAttackSasrecTrainer(base_trainer)
+    #elif config.attack.attack_method.lower() == 'sr_targeted_coordinated_sasrec':
+    #    ## coordinated attack using embeddings
+    #    from federatedscope.attack.trainer import wrap_TestAttackTrainer
+    #    return wrap_TestAttackTrainer(base_trainer)
+    elif config.attack.attack_method.lower() == 'sr_targeted_smart_random_sasrec':
+        ## Random Smart Label SASRec Attack
+        from federatedscope.attack.trainer import wrap_SrTargetedSmartRandomAttackSasrecTrainer
+        return wrap_SrTargetedSmartRandomAttackSasrecTrainer(base_trainer)
     
     else:
         raise ValueError('Trainer {} is not provided'.format(

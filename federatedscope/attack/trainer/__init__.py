@@ -7,6 +7,10 @@ from federatedscope.attack.trainer.gaussian_attack_trainer import *
 from federatedscope.attack.trainer.sr_targeted_random_sasrec_attack_trainer import *
 from federatedscope.attack.trainer.sr_benign_trainer import *
 from federatedscope.attack.trainer.sr_targeted_segment_sasrec_attack_trainer import *
+from federatedscope.attack.trainer.sr_targeted_labelFlip_sasrec_attack_trainer import *
+from federatedscope.attack.trainer.sr_targeted_random_sasrec_attack_w_smart_label_trainer import *
+#from federatedscope.attack.trainer.sr_targeted_coordinated_attack_trainer import *
+
 
 __all__ = [
     'wrap_GANTrainer', 'hood_on_fit_start_generator',
@@ -26,5 +30,12 @@ __all__ = [
     'hook_on_batch_forward_poison_data',
     
     ## Targeted Segment SASRec Attack
-    'wrap_SrTargetedSegmentAttackSasrecTrainer'
+    'wrap_SrTargetedSegmentAttackSasrecTrainer',
+    
+    ## Targeted LabelFlip SASRec Attack
+    'wrap_SrTargetedLabelFlipAttackSasrecTrainer',
+    
+    ## Random Smart Label SASRec Attack
+    'wrap_SrTargetedSmartRandomAttackSasrecTrainer'
+    
 ]

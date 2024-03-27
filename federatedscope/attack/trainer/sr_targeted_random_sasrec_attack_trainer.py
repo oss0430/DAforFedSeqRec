@@ -27,9 +27,11 @@ def wrap_SrTargetedRandomAttackSasrecTrainer(
     base_trainer.register_hook_in_train(new_hook = register_random_sequence_poison,
                                         trigger = 'on_batch_start',
                                         insert_mode = -1)
-    base_trainer.register_hook_in_train(new_hook = hook_on_batch_forward_poison_data,
-                                        trigger = 'on_batch_forward',
-                                        insert_mode = -1)
+    
+    base_trainer.replace_hook_in_train(
+        new_hook = hook_on_batch_forward_poison_data,
+        target_trigger= 'on_batch_forward',
+        target_hook_name = '_hook_on_batch_forward')
     
     return base_trainer
 
