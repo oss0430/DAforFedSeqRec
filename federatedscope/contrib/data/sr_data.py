@@ -128,6 +128,101 @@ def split_dataframe_into_train_valid_test(
     train_df = test_df.drop(dropping_for_train.index).reset_index(drop = True)
     
     return train_df, valid_df, test_df
+
+
+def make_item_dropped_df(
+    df : pd.DataFrame,
+    user_column : str,
+    itemdrop_method : str = "intermediate",
+    offset : int = 0,
+    dropcount :int = 0,
+    dropping_user_id : List[int] = []
+) -> pd.DataFrame : 
+
+    if len(dropping_user_id) > 0 :
+        def remove_first_item(group):
+            if group.name in dropping_user_id:
+                group_size = len(group)
+                if group_size > dropcount+offset :
+                    group = pd.concat([group.iloc[:offset], group.iloc[dropcount+offset:]])
+                elif group_size > offset and group_size <= dropcount+offset :
+                    group = group.iloc[:offset]
+                else :
+                    group = group
+            return group
+
+        def remove_last_item(group):
+            if group.name in dropping_user_id:
+                group_size = len(group)
+                if group_size > dropcount+offset :
+                    group = pd.concat([group.iloc[:-(dropcount+offset)], group.iloc[-offset:]])
+                elif group_size > offset and group_size <= dropcount+offset :
+                    group = group.iloc[-offset:]
+                else :
+                    group = group
+            return group
+
+        def remove_random_item(group):
+            if group.name in dropping_user_id:
+                drop_count = dropcount
+                while len(group) > drop_count and drop_count > 0:
+                    random_row = group.sample(1).index
+                    group = group.drop(random_row)
+                    drop_count -= 1
+            return group
+        ## iter the groupby object and drop the item from the user_id
+        groupby_user = df.groupby(user_column)
+        ## Drop only user in dropping_user_id
+        if itemdrop_method == "first" :
+            dropped_df = groupby_user.apply(remove_first_item).reset_index(drop=True)
+        elif itemdrop_method == "random" :
+            dropped_df = groupby_user.apply(remove_random_item).reset_index(drop=True)
+        elif itemdrop_method == "last" :
+            dropped_df = groupby_user.apply(remove_last_item).reset_index(drop=True)
+        else : 
+            Warning("Drop Method Unrecognized, just return original dataframe")
+            return df
+    else :
+        ## Drop all
+        def remove_first_item(group):
+            group_size = len(group)
+            if group_size > dropcount+offset :
+                group = pd.concat([group.iloc[:offset], group.iloc[dropcount+offset:]])
+            elif group_size > offset and group_size <= dropcount+offset :
+                group = group.iloc[:offset]
+            else :
+                group = group
+            return group
+
+        def remove_last_item(group):
+            group_size = len(group)
+            if group_size > dropcount+offset :
+                group = pd.concat([group.iloc[:-(dropcount+offset)], group.iloc[-offset:]])
+            elif group_size > offset and group_size <= dropcount+offset :
+                group = group.iloc[-offset:]
+            else :
+                group = group
+            return group
+
+        def remove_random_item(group):
+            drop_count = dropcount
+            while len(group) > drop_count and drop_count > 0:
+                random_row = group.sample(1).index
+                group = group.drop(random_row)
+                drop_count -= 1
+            return group
+        
+        if itemdrop_method == "first" :
+            dropped_df = groupby_user.apply(remove_first_item).reset_index(drop=True)
+        elif itemdrop_method == "random" :
+            dropped_df = groupby_user.apply(remove_random_item).reset_index(drop=True)
+        elif itemdrop_method == "last" :
+            dropped_df = groupby_user.apply(remove_last_item).reset_index(drop=True)
+        else : 
+            Warning("Drop Method Unrecognized, just return original dataframe")
+            return df
+        
+    return dropped_df
     
     
 def make_sr_dataset(
@@ -142,7 +237,11 @@ def make_sr_dataset(
     max_sequence_length : int = None,
     user_num : int = None,
     item_num : int = None,
-    padding_value : int = 0
+    padding_value : int = 0,
+    itemdrop_method : str = "",
+    offset : int = 0,
+    dropcount : int = 0,
+    dropping_user_id : List[int] = None
 ) -> Tuple[SequentialRecommendationDataset, SequentialRecommendationDataset, SequentialRecommendationDataset] :
     
     try :
@@ -154,10 +253,22 @@ def make_sr_dataset(
         df = pd.read_csv(df_path, header = 0, sep = '\t')
         df = df.sort_values([user_column, timestamp_column])
 
-        # Cut by min_sequence_length
-        #if min_sequence_length :
-        #    df = cut_by_in_sequence_length(df, user_column, min_sequence_length)
+        ## Cut by min_sequence_length
+        ##if min_sequence_length :
+        ##    df = cut_by_in_sequence_length(df, user_column, min_sequence_length)
         
+        ## Try to drop if drop method exist
+        if itemdrop_method is not "":
+            dropped_df = make_item_dropped_df(
+                df = df,
+                user_column = user_column,
+                itemdrop_method = itemdrop_method,
+                offset = offset,
+                dropcount = dropcount,
+                dropping_user_id = dropping_user_id
+            )
+            df = dropped_df
+            
         # Split Dataframe in to train, valid, test according to leave one out strategy
         train_df, valid_df, test_df = split_dataframe_into_train_valid_test(df, user_column)
         
@@ -232,7 +343,11 @@ def load_sr_data(
         config.data.max_sequence_length,
         config.data.user_num,
         config.data.item_num,
-        config.data.padding_value
+        config.data.padding_value,
+        config.srtest.itemdrop_method,
+        config.srtest.offset,
+        config.srtest.dropcount,
+        config.srtest.dropping_user_id
     )
     
     translator = BaseDataTranslator(config, client_cfgs)

@@ -93,7 +93,6 @@ class SASRecTrainer(GeneralTorchTrainer):
         Evaluate metrics.
         We don't use ys_prob but ys_pred since it is not classification task
         """
-        ## TODO: check np.concatenate is correctly giving out what we want
         ctx.ys_true = CtxVar(np.concatenate(ctx.ys_true), LIFECYCLE.ROUTINE)
         ctx.ys_pred = CtxVar(np.concatenate(ctx.ys_pred), LIFECYCLE.ROUTINE)
         results = ctx.monitor.eval(ctx)
