@@ -145,5 +145,4 @@ dmypy.json
 
 #debug
 /item_drop_configs
-.vscode
-.vscode/launch.json
+
