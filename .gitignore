@@ -144,5 +144,6 @@ dmypy.json
 /exp
 
 #debug
+/item_drop_configs
 .vscode
 .vscode/launch.json

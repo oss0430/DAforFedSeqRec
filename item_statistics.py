@@ -63,6 +63,16 @@ def get_top_and_bottom_k_item_ids(
     
     return result_txt
 
+def get_middle_item_ids(
+    item_counts : Dict[int,int]
+) -> str :
+    
+    middle = list(item_counts.items())[len(item_counts)//2]
+    
+    result_txt = f"Middle item: {middle}\n"
+    
+    return result_txt
+
 
 if __name__ == '__main__' :
     
@@ -76,7 +86,8 @@ if __name__ == '__main__' :
     
     result = result + data_statistics(item_id_counts)
     result = result + get_top_and_bottom_k_item_ids(item_id_counts, args.k)
-
+    result = result + get_middle_item_ids(item_id_counts)
+    
     ## write result to file
     with open(args.output_path, 'w') as f:
         f.write(result)
