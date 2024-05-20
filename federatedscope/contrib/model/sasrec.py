@@ -420,6 +420,35 @@ class SASRec(SequentialRecommender):
         
         return scores
 
+    
+    def embedding_forward(self, input_emb : torch.Tensor, item_seq_len : torch.Tensor):
+        
+        dummy_item_seq = torch.ones(input_emb.size(0), self.max_seq_length, dtype=torch.long, device=input_emb.device)
+        ## set zeros according to item_seq_len
+        for i, length in enumerate(item_seq_len):
+            dummy_item_seq[i, :length] = 0
+        
+        if self.use_position == True:
+            position_ids = torch.arange(
+                input_emb.size(1), dtype=torch.long, device=input_emb.device
+            )
+            position_ids = position_ids.unsqueeze(0).expand_as(dummy_item_seq)
+            position_embedding = self.position_embedding(position_ids)
+            
+            input_emb = input_emb + self.position_embedding
+        input_emb = self.LayerNorm(input_emb)
+        input_emb = self.dropout(input_emb)
+        
+        extended_attention_mask = self.get_attention_mask(dummy_item_seq)
+
+        trm_output = self.trm_encoder(
+            input_emb, extended_attention_mask, output_all_encoded_layers=True
+        )
+        output = trm_output[-1]
+        output = self.gather_indexes(output, item_seq_len - 1)
+        return output  
+    
+    
 
 def call_sasrec(model_config, local_data) :
     if model_config.type == 'sasrec' :

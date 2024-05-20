@@ -1,3 +1,5 @@
+import collections
+
 from federatedscope.register import register_trainer
 from federatedscope.core.trainers import GeneralTorchTrainer
 from federatedscope.core.trainers.enums import MODE, LIFECYCLE
@@ -14,6 +16,29 @@ class SASRecTrainer(GeneralTorchTrainer):
     """
     SASRecTrainer is used for SASRec model and SRDataset
     """
+    def __init__(self,
+                 model,
+                 data,
+                 device,
+                 config,
+                 only_for_eval = False,
+                 monitor = None):
+        super(SASRecTrainer, self).__init__(model, data, device, config, monitor)
+        
+        self.hooks_in_embed_forward = collections.defaultdict(list)
+    
+    
+    def register_default_hooks_embed_forward(self):
+        self.register_hook_in_embed_forward(self._hook_on_data_parallel_init,
+                                            "on_fit_start")
+        self.register_hook_in_embed_forward(self._hook_on_fit_start_init,
+                                            "on_fit_start")
+        self.register_hook_in_embed_forward(self._hook_on_epoch_start,
+                                            "on_epoch_start")
+        
+    
+    
+    
     def _hook_on_fit_start_init(self, ctx):
         """
         Note:
@@ -53,7 +78,19 @@ class SASRecTrainer(GeneralTorchTrainer):
         ctx.ys_true = CtxVar([], LIFECYCLE.ROUTINE)
         ctx.ys_prob = CtxVar([], LIFECYCLE.ROUTINE)
         ctx.ys_pred = CtxVar([], LIFECYCLE.ROUTINE)
-        
+
+    
+    
+    def register_hook_in_embed_forward(self,
+                                       new_hook,
+                                       trigger,
+                                       insert_pos = None,
+                                       base_hook = None,
+                                       insert_mode = "before"):
+        hooks_dict = self.hooks_in_embed_forward
+        self._register_hook(base_hook, hooks_dict, insert_mode, insert_pos,
+                            new_hook, trigger)
+    
     
     def _hook_on_batch_forward(self, ctx):
 
@@ -99,6 +136,18 @@ class SASRecTrainer(GeneralTorchTrainer):
         setattr(ctx, 'eval_metrics', results)
     
     
+    
+    def get_true_input_emb(self, target_data_split_name = 'train',  hooks_set=None) :
+        """
+        Return the input embedding of the model
+        """
+        hooks_set = hooks_set or self.hooks_in_embed_forward
+        
+        self.ctx.check_split(target_data_split_name)
+        self._run_routine(MODE.TRAIN, hooks_set, target_data_split_name)
+        
+        input_embedding = self.model.item_embedding.weight
+        return input_embedding
     
     
     
