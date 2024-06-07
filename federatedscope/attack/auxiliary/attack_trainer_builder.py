@@ -41,6 +41,10 @@ def wrap_attacker_trainer(base_trainer, config):
         ## Random Smart Label SASRec Attack
         from federatedscope.attack.trainer import wrap_SrTargetedSmartRandomAttackSasrecTrainer
         return wrap_SrTargetedSmartRandomAttackSasrecTrainer(base_trainer)
+    elif config.attack.attack_method.lower() == 'sr_targeted_reconstruction_sasrec':
+        from federatedscope.attack.trainer import wrap_SrTargetedReconstructionAttackSasrecTrainer
+        return wrap_SrTargetedReconstructionAttackSasrecTrainer(base_trainer)
+    
     
     else:
         raise ValueError('Trainer {} is not provided'.format(

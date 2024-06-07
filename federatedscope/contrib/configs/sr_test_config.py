@@ -10,4 +10,4 @@ def extend_cfg_for_sasrec_testing(cfg) :
     cfg.srtest.dropcount = 0
     cfg.srtest.dropping_user_id = [] ## List[int]
 
-register_config("sasrec_testing", extend_cfg_for_sasrec_testing)
+#register_config("sasrec_testing", extend_cfg_for_sasrec_testing)

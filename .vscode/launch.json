@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args" : [
-                "--cfg", "ml-1m_sasrec_no_attack.yaml"
+                "--cfg", "run_configs/ml-1m_sasrec_no_attack_client_wise_evaluation.yaml"
             ]
         }
     ]
