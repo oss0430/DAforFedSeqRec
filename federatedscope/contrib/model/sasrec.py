@@ -422,8 +422,9 @@ class SASRec(SequentialRecommender):
 
     
     def embedding_forward(self, input_emb : torch.Tensor, item_seq_len : torch.Tensor):
-        
-        dummy_item_seq = torch.ones(input_emb.size(0), self.max_seq_length, dtype=torch.long, device=input_emb.device)
+        ## Note : input_emb.size(0) is not batch size! how can we work on this? maybe input themselv should contain batch size
+        batch_size = input_emb.size(0)
+        dummy_item_seq = torch.ones(batch_size, self.max_seq_length, dtype=torch.long, device=input_emb.device)
         ## set zeros according to item_seq_len
         for i, length in enumerate(item_seq_len):
             dummy_item_seq[i, :length] = 0
@@ -435,7 +436,8 @@ class SASRec(SequentialRecommender):
             position_ids = position_ids.unsqueeze(0).expand_as(dummy_item_seq)
             position_embedding = self.position_embedding(position_ids)
             
-            input_emb = input_emb + self.position_embedding
+            input_emb = input_emb + position_embedding
+            
         input_emb = self.LayerNorm(input_emb)
         input_emb = self.dropout(input_emb)
         
@@ -448,6 +450,14 @@ class SASRec(SequentialRecommender):
         output = self.gather_indexes(output, item_seq_len - 1)
         return output  
     
+    
+    def full_sort_embedding_predict(self, item_seq : torch.Tensor, item_seq_len : torch.Tensor):
+
+        seq_output = self.embedding_forward(item_seq, item_seq_len)
+        test_items_emb = self.item_embedding.weight
+        scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B n_items]
+        
+        return scores
     
 
 def call_sasrec(model_config, local_data) :

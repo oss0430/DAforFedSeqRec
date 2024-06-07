@@ -1,11 +1,15 @@
 import os
 import numpy as np
+import logging
 import torch
 import pandas as pd
 from typing import List, Tuple, Dict, Any, Optional
 
 from federatedscope.core.data import BaseDataTranslator
 from federatedscope.register import register_data
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class SequentialRecommendationDataset(torch.utils.data.Dataset):
@@ -248,6 +252,16 @@ def make_sr_dataset(
         train_df = pd.read_csv(os.path.join(partitioned_df_path, 'train.csv'))
         valid_df = pd.read_csv(os.path.join(partitioned_df_path, 'valid.csv'))
         test_df = pd.read_csv(os.path.join(partitioned_df_path, 'test.csv'))
+        
+        user_num_trian = len(train_df[user_column].unique())
+        user_num_valid = len(valid_df[user_column].unique())
+        user_num_test = len(test_df[user_column].unique())
+        
+        if user_num_trian == user_num_valid and user_num_valid == user_num_test :
+            logger.info("SRData : User Number is Consistent")
+        else :
+            logger.warning("SRData : User Number is not Consistent")
+        
     except :
         # Sort Dataframe by user and timestamp
         df = pd.read_csv(df_path, header = 0, sep = '\t')
@@ -258,7 +272,7 @@ def make_sr_dataset(
         ##    df = cut_by_in_sequence_length(df, user_column, min_sequence_length)
         
         ## Try to drop if drop method exist
-        if itemdrop_method is not "":
+        if itemdrop_method != "":
             dropped_df = make_item_dropped_df(
                 df = df,
                 user_column = user_column,
@@ -330,7 +344,7 @@ def make_sr_dataset(
 def load_sr_data(
     config,
     client_cfgs = None
-) :
+) : 
     trainset, validset, testset = make_sr_dataset(
         config.data.df_path,
         config.data.user_column,
@@ -344,10 +358,10 @@ def load_sr_data(
         config.data.user_num,
         config.data.item_num,
         config.data.padding_value,
-        config.srtest.itemdrop_method,
-        config.srtest.offset,
-        config.srtest.dropcount,
-        config.srtest.dropping_user_id
+        #config.srtest.itemdrop_method or None,
+        #config.srtest.offset or None,
+        #config.srtest.dropcount or None,
+        #config.srtest.dropping_user_id or None
     )
     
     translator = BaseDataTranslator(config, client_cfgs)
