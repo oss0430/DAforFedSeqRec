@@ -924,6 +924,7 @@ class Server(BaseServer):
         else:
             # Preform evaluation in clients
             self.broadcast_model_para(msg_type='evaluate',
+                                      sample_client_num=-1, ##broadcast to all clients when evaluating locally
                                       filter_unseen_clients=False)
 
     def callback_funcs_model_para(self, message: Message):
