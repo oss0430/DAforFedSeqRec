@@ -10,6 +10,7 @@ import os
 import torch
 import pickle
 import numpy as np
+import time
 ## NOTE:
 # To use SybilAttackServer. 
 # Write in config file, "attack : attack_method : sybil_attack"
@@ -87,7 +88,11 @@ class SybilAttackServer(Server):
         current model and previous model.
         """
         
-        generated_data = {}
+        generated_data = {"input_embedding" : [],
+                          "item_seq_len" : [],
+                          "original_label" : [],
+                          "target_item" : [],
+                          "history" : []}
         training_rate = epoch * learning_rate
         
         previous_model_params = dict(previous_model.named_parameters())
@@ -102,27 +107,32 @@ class SybilAttackServer(Server):
             mean_gradient = parameter_diff / training_rate
             mean_gradient_per_param[name] = mean_gradient.detach()
         
-        for label, item_seq_len in zip(labels, list_of_item_seq_len) :
-            generated_input_embedding = torch.normal(0, 0.8, size=(1, current_model.max_seq_length, current_model.hidden_size))
+        reconstruction_loader = self._get_reconstruction_loader(labels, self._cfg.attack.reconstruction_batch_size)
+        
+        ## per batch generate
+        for batch in reconstruction_loader:
+            label = batch['label']
+            input_embedding = batch['input_embedding']
+            item_seq_len = batch['item_seq_len']
+            
+            generated_input_embedding = input_embedding.clone().detach()
             generated_input_embedding.requires_grad_(True)
             
-            ## Note : input_emb.size(0) is not batch size! how can we work on this? maybe input themselv should contain batch size
-            #item_seq_len.requires_grad_(True)
-            #label.requires_grad_(True)   
+            optimizer = torch.optim.LBFGS([generated_input_embedding])
             
-            optimizer = torch.optim.LBFGS([generated_input_embedding])            
-            #optimizer = torch.optim.LBFGS([generated_input_embedding, item_seq_len, label], lr=learning_rate)            
-            ## This version of parameter do not work since item_seq_len and labels are int64 and 
-            history = []
-            for iter in range(self._cfg.attack.reconstruction_iter):
+            history = {}
+            ## initialize history section via labels
+            for single_label in label:
+                history[single_label.item()] = {"input_embedding" : [], "loss" : []}
                 
+            for iter in range(self._cfg.attack.reconstruction_iter):
                 def closure():
                     
                     optimizer.zero_grad()
                     outputs = current_model.embedding_forward(generated_input_embedding, item_seq_len)
                     test_item_emb = current_model.item_embedding.weight
                     logits = torch.matmul(outputs, test_item_emb.transpose(0,1))
-                    loss = criterion(logits, label.squeeze(0))
+                    loss = criterion(logits, label)
                     dummy_gradient = torch.autograd.grad(loss, current_model.parameters(), create_graph=True) ## Tuple of tensors
                     
                     l2_loss = 0
@@ -137,20 +147,50 @@ class SybilAttackServer(Server):
                 optimizer.step(closure)
                 
                 ## Try to Save every 10 iter
-                if iter % 10 == 0 and record_history:
+                if (iter + 1) % 10 == 0 and record_history:
                     current_grad_diff = closure()
-                    history.append({"generated_input_embedding" : generated_input_embedding.clone().detach(),
-                                    "loss" : current_grad_diff.clone().detach()})
+                    for single_label in label:
+                        history[single_label.item()]["input_embedding"].append(generated_input_embedding.clone().detach())
+                        history[single_label.item()]["loss"].append(current_grad_diff.clone().detach())
                     
-                    
-            generated_data[label] = {"input_embedding" : generated_input_embedding, # torch.Tensor
-                                     "item_seq_len" : item_seq_len, # torch.Tensor
-                                     "history" : history}  # List[torch.Tensor]
+            ## decompose the batch into single instance and
+            ## append to the generated_data
+            for i in range(len(label)):
+                generated_data["input_embedding"].append(generated_input_embedding[i].unsqueeze(0).clone().detach()) # List[torch.Tensor]
+                generated_data["item_seq_len"].append(item_seq_len[i]) # List[torch.Tensor]
+                generated_data["original_label"].append(label[i]) # List[torch.Tensor]
+                generated_data["target_item"].append(torch.zeros_like(item_seq_len[i]) + self._cfg.attack.target_item_id) # List[torch.Tensor]
+                generated_data["history"].append(history[label[i].item()]) # List[Dict[str, List[torch.Tensor]]]
+       
         
         return generated_data
 
     
-    def _select_label(self, num : int) -> List[torch.Tensor]: 
+    def _get_reconstruction_loader(self, labels, batch_size):
+        """
+        Get the dataloader for reconstruction
+        """
+        class ReconstructionDataset(Dataset):
+            def __init__(self, labels, cfg):
+                self.labels = labels
+                self.gaussian_input_embedding = torch.normal(0, 1, size=(len(labels),
+                                                                         cfg.model.max_sequence_length, 
+                                                                         cfg.model.hidden_size))
+                self.item_seq_len = torch.randint(1, cfg.model.max_sequence_length, size=(len(labels),1))
+                
+            def __len__(self):
+                return len(self.labels)
+
+            def __getitem__(self, idx):
+                return {"label" : self.labels[idx], 
+                        "input_embedding" : self.gaussian_input_embedding[idx],
+                        "item_seq_len" : self.item_seq_len[idx]}
+
+        dataset = ReconstructionDataset(labels, self._cfg)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    
+    
+    def _select_label(self, num : int) -> torch.Tensor: 
         item_num = self._cfg.model.item_num
         padding_idx = 0
         target_item_id = self._cfg.attack.target_item_id
@@ -159,9 +199,12 @@ class SybilAttackServer(Server):
         while True :
             if len(labels) == num:
                 break
-            random_label = torch.randint(1, item_num, size=(self._cfg.data.batch_size,1))
+            random_label = torch.randint(1, item_num, size=(self._cfg.data.batch_size,))
             if random_label != target_item_id:
                 labels.append(random_label)
+        
+        ## convert to 1 d tensor
+        labels = torch.cat(labels, dim = 0)
         
         return labels    
     
@@ -202,42 +245,43 @@ class SybilAttackServer(Server):
         return reconstructed_data
         
     
-    def eval_reconstruction(self, label_via_poisonous_data : Dict[torch.Tensor, List[Dict[str, any]]]) :
+    def eval_reconstruction(self, 
+                            poisonous_data : Dict[str, any],
+                            model_idx : int = 0
+        ) :
         """
         Globally Evaluate the reconsturction by
         comapring true sequence final representation and generated sequence final representation
         """
         
         output_dir =  os.path.join("/data1/donghoon/FederatedScopeEval", self._cfg.outdir)
-
-        # Create the directory if it does not exist
         os.makedirs(output_dir, exist_ok=True)
-        #target_data_split_name = 'train'
-        
         ## Record generated input's output
+        
         generated_outputs = {"label" : [], "model_idx" : [], "output" : [], "input_embedding" : [], "item_seq_len" : [], "rank" : []}
         history_output = {"label" : [], "model_idx" : [], "history" : []}
-        for label, list_of_poisonous_data in label_via_poisonous_data.items():
-            for model_idx, poisonous_data in enumerate(list_of_poisonous_data):
-                trainer = self.trainers[model_idx]
-                model = trainer.ctx.model
-                
-                model_output = model.embedding_forward(poisonous_data['input_embedding'], poisonous_data['item_seq_len'])
-                test_item_emb = model.item_embedding.weight
-                logits = torch.matmul(model_output, test_item_emb.transpose(0,1))
-                rank = torch.argsort(torch.argsort(logits, dim = 1), dim = 1)
-                rank_for_label = torch.take_along_dim(rank, label, dim = 1)
-                
-                generated_outputs["label"].append(label)
-                generated_outputs["model_idx"].append(model_idx)
-                generated_outputs["output"].append(model_output.detach().cpu().numpy())
-                generated_outputs["input_embedding"].append(poisonous_data['input_embedding'])
-                generated_outputs["item_seq_len"].append(poisonous_data['item_seq_len'].detach().cpu().numpy())
-                generated_outputs["rank"].append(rank_for_label.detach().cpu().numpy())
-                
-                history_output["label"].append(label)
-                history_output["model_idx"].append(model_idx)
-                history_output["history"].append(poisonous_data['history'])
+        for i in range(len(poisonous_data['input_embedding'])):
+            input_embedding = poisonous_data['input_embedding'][i]
+            item_seq_len = poisonous_data['item_seq_len'][i]
+            label = poisonous_data['original_label'][i]
+            model = self.models[model_idx]
+            
+            model_output = model.embedding_forward(input_embedding, item_seq_len.unsqueeze(0))
+            test_item_emb = model.item_embedding.weight
+            logits = torch.matmul(model_output, test_item_emb.transpose(0,1))
+            rank = torch.argsort(torch.argsort(logits, dim = 1), dim = 1)
+            rank_for_label = torch.take_along_dim(rank, label.unsqueeze(0))
+            
+            generated_outputs["label"].append(label)
+            generated_outputs["model_idx"].append(model_idx)
+            generated_outputs["output"].append(model_output.detach().cpu().numpy())
+            generated_outputs["input_embedding"].append(input_embedding)
+            generated_outputs["item_seq_len"].append(item_seq_len.detach().cpu().numpy())
+            generated_outputs["rank"].append(rank_for_label.detach().cpu().numpy())
+            
+            history_output["label"].append(label)
+            history_output["model_idx"].append(model_idx)
+            history_output["history"].append(poisonous_data['history'])
                 
         ## Get original input's output
         original_outputs = {"label" : [], "model_idx" : [], "output" : [], "input_embedding" : [], "item_seq_len" : [], "rank" : []} 
@@ -269,37 +313,45 @@ class SybilAttackServer(Server):
     def _construct_and_distribute_poisonous_data(self):
         ## From previous model and aggregated model reconstruct the sequence embeddings
         ## and distribute them to attacking nodes.
-        
+        generation_start_time = time.time()
         reconstructed_data = self._reconstruct_data(num = self._cfg.attack.reconstruction_data_size) ## List of dict
+        generation_end_time = time.time()
+        
+        logger.info(f'Server: Reconstruction of data is finished. {generation_end_time - generation_start_time} seconds passed.')
         
         attacking_node_ids = self._cfg.attack.attacker_id ## List of int
-        receiver = attacking_node_ids
+        receiver = attacking_node_ids  
         
-        ## Re arrange via label so that each instance carries exactly one poisonous data for each model
-        label_via_poisonous_data = defaultdict(list)
-        for model_id, poisonous_datas in enumerate(reconstructed_data):
-            for label, poisonous_data in poisonous_datas.items():
-                label_via_poisonous_data[label].append(poisonous_data)
-        
-        if self._cfg.attack.eval_reconstruction and self._cfg.federate.make_global_eval:
+        if self._cfg.attack.eval_reconstruction and self._cfg.federate.make_global_eval :
             if self.state % self._cfg.eval.freq == 0 and self.state != \
-                        self.total_round_num:
-                self.eval_reconstruction(label_via_poisonous_data) 
+                        self.total_round_num :
+                for model_idx, poisonous_datas in enumerate(reconstructed_data):
+                    self.eval_reconstruction(poisonous_datas, model_idx)
         
-        if len(label_via_poisonous_data) > len(receiver):
-            ## Select only the number of attacking nodes
-            label_via_poisonous_data = dict(list(label_via_poisonous_data.items())[:len(receiver)])
-                
-        for idx, (label, list_of_poisonous_data) in enumerate(label_via_poisonous_data.items()):
+        if len(reconstructed_data[0]) > len(receiver):
+            ## Set Sampling idx to the number of attacking nodes
+            sampling_indices = np.random.choice(len(reconstructed_data[0]["original_label"]), len(receiver), replace = False)
+        else :
+            sampling_indices = np.arange(len(reconstructed_data[0]["original_label"]))
+        
+        for sample_idx, receiver_id in zip(sampling_indices, receiver):
+            msg_content = []
+            for model_idx in range(self.model_num):    
+                msg_content.append({
+                    "input_embedding" : reconstructed_data[model_idx]['input_embedding'][sample_idx],
+                    "item_seq_len" : reconstructed_data[model_idx]['item_seq_len'][sample_idx],
+                    "original_label" : reconstructed_data[model_idx]['original_label'][sample_idx],
+                    "target_item" : reconstructed_data[model_idx]['target_item'][sample_idx],
+                })
             self.comm_manager.send(
                 Message(
                     msg_type = "reconstructed_embedding",
                     sender = self.ID,
-                    receiver = receiver[idx],
+                    receiver = receiver_id,
                     state = min(self.state, self.total_round_num),
-                    content = list_of_poisonous_data
+                    content = msg_content
                 )
-            )            
+            )          
         
     
     
@@ -341,13 +393,8 @@ class SybilAttackServer(Server):
                 self.state += 1
                 ## TODO: Implement Sybil Attack HERE
                 ## Debug only do reconstruction for eval epoch
-                if self._cfg.attack.eval_reconstruction and self._cfg.federate.make_global_eval:
-                    if self.state % self._cfg.eval.freq == 0 and self.state != \
-                                self.total_round_num:
-                                
-                        self._construct_and_distribute_poisonous_data()
-                        logger.info(f'Server: Perfroming Sybil Attack')
-                    
+                logger.info(f'Server: Perfroming Sybil Attack')
+                self._construct_and_distribute_poisonous_data()
                 if self.state % self._cfg.eval.freq == 0 and self.state != \
                         self.total_round_num:
                     #  Evaluate
@@ -501,8 +548,7 @@ class SybilAttackClient(Client):
                             HERE Starts the Sybil Attack :
                             Updating model with given reconsturcted embeddings
                         """
-                        sample_size, model_para_all, results = self.trainer.train()
-                        #sample_size, model_para_all, results = self.trainer.embedding_poisonous_update()
+                        sample_size, model_para_all, results = self.trainer.embedding_train(reconstructed_data = self.reconstructed_data)
                         if self._cfg.federate.share_local_model and not \
                                 self._cfg.federate.online_aggr:
                             model_para_all = copy.deepcopy(model_para_all)

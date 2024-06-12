@@ -1,3 +1,4 @@
+from typing import List, Dict
 import collections
 
 from federatedscope.register import register_trainer
@@ -7,6 +8,7 @@ from federatedscope.core.trainers.trainer import Trainer
 from federatedscope.core.trainers.context import CtxVar
 from federatedscope.core.auxiliaries.optimizer_builder import get_optimizer
 from federatedscope.core.auxiliaries.scheduler_builder import get_scheduler
+from federatedscope.core.auxiliaries.ReIterator import ReIterator
 
 import copy
 import torch
@@ -268,6 +270,21 @@ class SASRecTrainer(GeneralTorchTrainer):
         self.debug_buffer = debug_output
     
     
+    def embedding_train(
+        self, target_data_split_name = "train", reconstructed_data = None
+    ) -> torch.Tensor: 
+        
+        if reconstructed_data is not None:
+            hooks_set = self.hooks_in_embedding_train       
+            self.reconstructed_data = reconstructed_data
+        else :
+            hooks_set = self.hooks_in_train
+
+        num_samples = self._run_routine(MODE.TRAIN,
+                                        hooks_set, target_data_split_name)
+
+        return num_samples, self.get_model_para(), self.ctx.eval_metrics
+            
     def register_hook_in_embedding_train(self,
                                        new_hook,
                                        trigger,
@@ -281,49 +298,109 @@ class SASRecTrainer(GeneralTorchTrainer):
     
     def register_default_hooks_embedding_train(self):
         # train
+        self.register_hook_in_embedding_train(self._hook_on_data_parallel_init,
+                                    "on_fit_start")
         self.register_hook_in_embedding_train(self._hook_on_fit_start_init,
                                     "on_fit_start")
-        self.register_hook_in_embedding_train(self._hook_on_epoch_start,
+        self.register_hook_in_embedding_train(
+            self._hook_on_fit_start_calculate_model_size, "on_fit_start")
+        self.register_hook_in_embedding_train(self._hook_on_embedding_train_epoch_start,
                                     "on_epoch_start")
         self.register_hook_in_embedding_train(self._hook_on_batch_start_init,
                                     "on_batch_start")
-        self.register_hook_in_embedding_train(self._hook_on_batch_forward,
+        self.register_hook_in_embedding_train(self._hook_on_embedding_train_batch_forward,
                                     "on_batch_forward")
-        self.register_hook_in_embedding_train(self._hook_on_batch_end,
-                                    "on_batch_end")
-        self.register_hook_in_embedding_train(self._hook_on_fit_end,
-                                    "on_fit_end")
+        self.register_hook_in_embedding_train(self._hook_on_batch_forward_regularizer,
+                                    "on_batch_forward")
+        self.register_hook_in_embedding_train(self._hook_on_batch_forward_flop_count,
+                                    "on_batch_forward")
+        self.register_hook_in_embedding_train(self._hook_on_batch_backward,
+                                    "on_batch_backward")
+        self.register_hook_in_embedding_train(self._hook_on_batch_end, "on_batch_end")
+        self.register_hook_in_embedding_train(self._hook_on_fit_end, "on_fit_end")
+        
+       
     
     
-    def _hook_on_embedding_train(self, ctx):
+    def _convert_reconstructed_datas_to_data_loader(self,
+                                                    reconstructed_data : Dict[str, any],
+                                                    ctx
+        ) -> torch.utils.data.DataLoader :
+        
+        input_embedding = reconstructed_data["input_embedding"]
+        item_seq_len = reconstructed_data["item_seq_len"]
+        target_item = reconstructed_data["target_item"]
+        
+        class EmbeddingDataset(torch.utils.data.Dataset):
+            
+            def __init__(self, input_embedding, item_seq_len, target_item):
+                self.input_embedding = input_embedding.to(ctx.device)
+                self.item_seq_len = item_seq_len.to(ctx.device)
+                self.target_item = target_item.to(ctx.device) 
+            
+            def __len__(self):
+
+                return len(self.item_seq_len)
+                
+            def __getitem__(self, idx):
+                
+                return {
+                    "input_embedding" : self.input_embedding[idx],
+                    "item_seq_len" : self.item_seq_len[idx],
+                    "target_item" : self.target_item[idx]
+                }
+
+        reconstructed_dataset = EmbeddingDataset(input_embedding, item_seq_len, target_item)
+        
+        reconstructed_dataloader = torch.utils.data.DataLoader(
+            reconstructed_dataset,
+            batch_size = ctx.cfg.dataloader.batch_size,
+            shuffle = True
+        )
+        
+        return reconstructed_dataloader
+    
+    
+    
+    def _hook_on_embedding_train_epoch_start(self, ctx):
         """
         Note:
-          The modified attributes and according operations are shown below:
+            The modified attributes and according operations are shown below:
             ==================================  ===========================
             Attribute                           Operation
             ==================================  ===========================
-            ``ctx.model``                       Move to ``ctx.device``
-            ``ctx.optimizer``                   Initialize by ``ctx.cfg``
-            ``ctx.scheduler``                   Initialize by ``ctx.cfg``
-            ``ctx.loss_batch_total``            Initialize to 0
-            ``ctx.loss_regular_total``          Initialize to 0
-            ``ctx.num_samples``                 Initialize to 0
-            ``ctx.ys_true``                     Initialize to ``[]``
-            ``ctx.ys_prob``                     Initialize to ``[]``
-            ==================================  ===========================
+            ``ctx.{ctx.cur_split}_loader``      Initialize DataLoader
         """
         # prepare model and optimizer
-        ctx.model.to(ctx.device)
+        ## prepare_dataset
+        reconstructed_dataloader = self._convert_reconstructed_datas_to_data_loader(
+            self.reconstructed_data, ctx)
+        
+        setattr(ctx, "{}_loader".format(ctx.cur_split), ReIterator(reconstructed_dataloader))
+    
+    
+    def _hook_on_embedding_train_batch_forward(self, ctx):
+        
+        data_batch = ctx.data_batch
+        input_embedding = data_batch["input_embedding"]
+        item_seq_len = data_batch["item_seq_len"]
+        target_item = data_batch["target_item"]
+        
+        input_embedding, item_seq_len, target_item = input_embedding.to(ctx.device), item_seq_len.to(ctx.device), target_item.to(ctx.device)
+        outputs = ctx.model.embedding_forward(input_embedding, item_seq_len)
+        pred = ctx.model.full_sort_embedding_predict(input_embedding, item_seq_len)
+        
+        test_item_emb = ctx.model.item_embedding.weight
+        logits = torch.matmul(outputs, test_item_emb.transpose(0,1))
+        
+        ctx.loss_batch = ctx.criterion(logits, target_item)
+        
+        ctx.y_true = CtxVar(target_item, LIFECYCLE.BATCH)
+        ctx.y_pred = CtxVar(logits, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
 
-        if ctx.cur_mode in [MODE.TRAIN, MODE.FINETUNE]:
-            # Initialize optimizer here to avoid the reuse of optimizers
-            # across different routines
-            ctx.optimizer = get_optimizer(ctx.model,
-                                          **ctx.cfg[ctx.cur_mode].optimizer)
-            ctx.scheduler = get_scheduler(ctx.optimizer,
-                                          **ctx.cfg[ctx.cur_mode].scheduler)
-    
-    
+        ctx.batch_size = len(target_item)
+        
+        
     
 def call_sasrec_trainer(trainer_type):
     if trainer_type == "sasrec_trainer":
