@@ -105,13 +105,21 @@ class SybilAttackServer(Server):
             param2 = current_model_params[name]
             parameter_diff = (param2 - param1)
             mean_gradient = parameter_diff / training_rate
-            mean_gradient_per_param[name] = mean_gradient.detach()
+            mean_gradient_per_param[name] = mean_gradient.detach().to(self.device)
         
         reconstruction_loader = self._get_reconstruction_loader(labels, self._cfg.attack.reconstruction_batch_size)
+        
+        original_device = current_model.device
+        original_mode = current_model.training
+        
+        current_model.eval()
+        current_model.to(self.device)
         
         ## per batch generate
         for batch in reconstruction_loader:
             label = batch['label']
+            label_for_iteration = label.clone().detach()
+            
             input_embedding = batch['input_embedding']
             item_seq_len = batch['item_seq_len']
             
@@ -124,7 +132,11 @@ class SybilAttackServer(Server):
             ## initialize history section via labels
             for single_label in label:
                 history[single_label.item()] = {"input_embedding" : [], "loss" : []}
-                
+            
+            label = label.to(self.device)
+            generated_input_embedding = generated_input_embedding.to(self.device)
+            item_seq_len = item_seq_len.to(self.device)
+            
             for iter in range(self._cfg.attack.reconstruction_iter):
                 def closure():
                     
@@ -149,19 +161,26 @@ class SybilAttackServer(Server):
                 ## Try to Save every 10 iter
                 if (iter + 1) % 10 == 0 and record_history:
                     current_grad_diff = closure()
-                    for single_label in label:
-                        history[single_label.item()]["input_embedding"].append(generated_input_embedding.clone().detach())
-                        history[single_label.item()]["loss"].append(current_grad_diff.clone().detach())
+                    for single_label in label_for_iteration:
+                        history[single_label.item()]["input_embedding"].append(generated_input_embedding.clone().detach().to('cpu'))
+                        history[single_label.item()]["loss"].append(current_grad_diff.clone().detach().to('cpu'))
                     
             ## decompose the batch into single instance and
             ## append to the generated_data
-            for i in range(len(label)):
+            ## first back to cpu
+            generated_input_embedding = generated_input_embedding.to('cpu')
+            item_seq_len = item_seq_len.to('cpu')
+            label = label.to('cpu')
+            
+            for i in range(len(label_for_iteration)):
                 generated_data["input_embedding"].append(generated_input_embedding[i].unsqueeze(0).clone().detach()) # List[torch.Tensor]
-                generated_data["item_seq_len"].append(item_seq_len[i]) # List[torch.Tensor]
+                generated_data["item_seq_len"].append(item_seq_len[i].to('cpu')) # List[torch.Tensor]
                 generated_data["original_label"].append(label[i]) # List[torch.Tensor]
                 generated_data["target_item"].append(torch.zeros_like(item_seq_len[i]) + self._cfg.attack.target_item_id) # List[torch.Tensor]
                 generated_data["history"].append(history[label[i].item()]) # List[Dict[str, List[torch.Tensor]]]
        
+        current_model.device = original_device
+        current_model.train(original_mode)
         
         return generated_data
 
