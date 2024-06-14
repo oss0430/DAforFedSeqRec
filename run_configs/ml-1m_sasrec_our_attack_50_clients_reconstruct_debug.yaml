@@ -7,7 +7,7 @@ federate:
   method : sybil_attack
   total_round_num: 200
   client_num: 6090 # 6040 + 50
-  sample_client_num: 200
+  sample_client_num: 1
   sample_client_rate: -1.0
   make_global_eval : False # without it it would be too slow
 data:
@@ -40,4 +40,4 @@ attack :
   reconstruction_iter : 20
   eval_reconstruction : True
   reconstruction_data_size : 50
-  reconstruction_batch_size : 25
+  reconstruction_batch_size : 10

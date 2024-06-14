@@ -1,15 +1,21 @@
 use_gpu: True
-device: 1
+device: 3
 early_stop:
   patience: 5
 federate:
   mode: standalone
-  method : sybil_attack
+  method : FedAvg
   total_round_num: 200
   client_num: 6090 # 6040 + 50
   sample_client_num: 200
   sample_client_rate: -1.0
   make_global_eval : False # without it it would be too slow
+outdir: exp/krum_sasrec_on_sr_data_lr0.001_lstep60
+aggregator :
+  robust_rule : krum
+  byzantine_node_num : 50
+  BFT_args :
+    krum_agg_num : 1
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
   type: sr_data
@@ -34,10 +40,7 @@ eval:
   best_res_update_round_wise_key: test_avg_loss
   count_flops: False
 attack :
-  attack_method : 'sr_targeted_reconstruction_sasrec'
+  attack_method : 'sr_targeted_random_sasrec'
   attacker_id : [6041, 6042, 6043, 6044, 6045, 6046, 6047, 6048, 6049, 6050, 6051, 6052, 6053, 6054, 6055, 6056, 6057, 6058, 6059, 6060, 6061, 6062, 6063, 6064, 6065, 6066, 6067, 6068, 6069, 6070, 6071, 6072, 6073, 6074, 6075, 6076, 6077, 6078, 6079, 6080, 6081, 6082, 6083, 6084, 6085, 6086, 6087, 6088, 6089, 6090]
+  covisitation : True
   target_item_id : 2308
-  reconstruction_iter : 20
-  eval_reconstruction : True
-  reconstruction_data_size : 50
-  reconstruction_batch_size : 25
