@@ -1,0 +1,36 @@
+use_gpu: True
+device: 0
+early_stop:
+  patience: 5
+federate:
+  mode: standalone
+  method : FedAvg
+  total_round_num: 200
+  client_num: 604 # 6040 // 10 = 604 
+  sample_client_num: 40
+  sample_client_rate: -1.0
+  make_global_eval : False # client wise evaluation
+data:
+  root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
+  type: sr_data
+  consistent_label_distribution: True
+  splitter_args : [{"group_size" : 10, "random_split" : True}]
+dataloader :
+  type : base
+  batch_size : 1
+model:
+  type: sasrec
+train:
+  local_update_steps: 60
+  optimizer:
+    lr: 0.001
+criterion:
+  type: CrossEntropyLoss
+trainer:
+  type: sasrec_trainer
+eval:
+  freq: 20
+  metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
+  split : ['val', 'test']
+  best_res_update_round_wise_key: test_avg_loss
+  count_flops: False

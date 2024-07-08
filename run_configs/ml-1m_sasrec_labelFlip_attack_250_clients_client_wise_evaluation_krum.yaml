@@ -1,5 +1,5 @@
 use_gpu: True
-device: 1
+device: 3
 early_stop:
   patience: 5
 federate:
@@ -12,7 +12,7 @@ federate:
   make_global_eval : False # without it it would be too slow
 aggregator :
   robust_rule : krum
-  byzantine_node_num : 250
+  byzantine_node_num : 8 # 200 * 250/6040 = 8.28
   BFT_args :
     krum_agg_num : 1
 outdir: exp/krum_sasrec_on_sr_data_lr0.001_lstep60
@@ -20,6 +20,7 @@ data:
   root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
   type: sr_data
   consistent_label_distribution: True
+  splitter : sr_splitter
 dataloader :
   type : base
   batch_size : 1

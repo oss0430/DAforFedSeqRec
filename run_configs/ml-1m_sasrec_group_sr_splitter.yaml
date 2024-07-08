@@ -1,25 +1,22 @@
 use_gpu: True
-device: 3
+device: 0
 early_stop:
   patience: 5
 federate:
   mode: standalone
-  method : fedavg
+  method : FedAvg
   total_round_num: 200
   client_num: 6040 # 6040
   sample_client_num: 200
   sample_client_rate: -1.0
-  make_global_eval : False # without it it would be too slow
-aggregator :
-  robust_rule : krum
-  byzantine_node_num : 8 ## 200 * (250/6040)
-  BFT_args :
-    krum_agg_num : 1
+  make_global_eval : True # without it it would be too slow
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
   type: sr_data
-  splitter : "sr_splitter"
   consistent_label_distribution: True
+  splitter : group_sr_splitter
+  splitter_args : 
+    group_sr_splitter : 5
 dataloader :
   type : base
   batch_size : 1
