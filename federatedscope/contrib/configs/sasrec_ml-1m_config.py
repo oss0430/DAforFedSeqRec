@@ -42,8 +42,8 @@ def extend_cfg_for_sasrec_ml1m(cfg) :
     cfg.data.item_num = 3952
     cfg.data.padding_value = 0
     cfg.data.consistent_label_distribution = True
-    cfg.data.splitter_args = None
-    cfg.data.splitter = 'sr_splitter'
+    cfg.data.splitter_args = []
+    cfg.data.splitter = 'group_sr_splitter' ## 'group_sr_splitter' or 'sr_splitter'
     cfg.data.splits = None ## Leave one out
     ## --------- Added for outdate configs -----------------
     ##      refer to federatedscope/core/configs/cfg_data.py
