@@ -103,7 +103,7 @@ class SybilAttackServer(Server):
         mean_gradient_per_param ={}
         for name, param1 in previous_model_params.items():
             param2 = current_model_params[name]
-            parameter_diff = (param2 - param1)
+            parameter_diff = (param2 - param1) ## current - previous
             mean_gradient = parameter_diff / training_rate
             mean_gradient_per_param[name] = mean_gradient.detach().to(self.device)
         
@@ -179,7 +179,7 @@ class SybilAttackServer(Server):
                 generated_data["target_item"].append(torch.zeros_like(item_seq_len[i]) + self._cfg.attack.target_item_id) # List[torch.Tensor]
                 generated_data["history"].append(history[label[i].item()]) # List[Dict[str, List[torch.Tensor]]]
        
-        current_model.device = original_device
+        current_model.to('cpu')
         current_model.train(original_mode)
         
         return generated_data
