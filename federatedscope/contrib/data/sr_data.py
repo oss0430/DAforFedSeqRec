@@ -52,18 +52,27 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
         return len(self.df[self.user_column].unique())
         
     
+    def _from_user_idx_get_user_subset_range(self, idx):
+        return [idx] 
+    
+    
+    def _get_user_df_and_user_id(
+        self,
+        idx : int
+    ) :
+        user_id = self.df[self.user_column].unique()[idx]
+        user_df = self.df[self.df[self.user_column] == user_id]
+        return user_df, user_id
+    
+    
     def __getitem__(
         self,
         idx : int 
-    ) -> Tuple[torch.Tensor,torch.Tensor,torch.Tensor]:#Dict[str,torch.Tensor] :
+    ) -> Tuple[torch.Tensor,torch.Tensor,torch.Tensor] :
         
-        user_id = self.df[self.user_column].unique()[idx]
-        
-        user_df = self.df[self.df[self.user_column] == user_id]
-        
+        user_df, user_id = self._get_user_df_and_user_id(idx)
         ## Considering the df is sorted by user_index and timestamp
         user_interaction = user_df[self.item_column].values
-        
         user_id = np.array([user_id])
         item_seq = user_interaction[:-1]
         item_seq_len = np.array([len(item_seq)])
@@ -93,8 +102,65 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
                 'item_seq_len' : item_seq_len,
                 'target_item' : target_item
         }
+ 
+ 
+class SequentialRecommendationDatasetWithAugmentation(SequentialRecommendationDataset):
+     
+    def __init__(
+        self,
+        df_with_augmentation : pd.DataFrame,
+        user_column : str,
+        item_column : str,
+        interaction_column : str,
+        timestamp_column : str,
+        augmentation_column : str,
+        min_sequence_length : int = None, 
+        max_sequence_length : int = None,
+        user_num : int = None,
+        item_num : int = None,
+        padding_value : int = 0
+    ) :
+        super(SequentialRecommendationDatasetWithAugmentation, self).__init__(
+            df_with_augmentation,
+            user_column,
+            item_column,
+            interaction_column,
+            timestamp_column,
+            min_sequence_length,
+            max_sequence_length,
+            user_num,
+            item_num,
+            padding_value
+        )
+        self.augmentation_column = augmentation_column
+        self.number_of_augmentation = len(self.df[self.augmentation_column].unique())
+    
+    def _from_user_idx_get_user_subset_range(self, idx):
+        ## given idx is a range of ids corresponded to
+        ## self.df[self.user_column]
+        start = idx * self.number_of_augmentation
+        end = start + self.number_of_augmentation
+        
+        return [i for i in range(start, end)]
+        
         
     
+    def __len__(self) :
+        number_of_augmentation = self.number_of_augmentation
+        number_of_user = len(self.df[self.user_column].unique())
+        return number_of_augmentation * number_of_user
+    
+    
+    def _get_user_df_and_user_id(self, idx: int):
+        user_id = idx // self.number_of_augmentation
+        augmentation_id = idx % self.number_of_augmentation
+        ## get the correct user and correct augmentation
+        user_df = self.df[self.df[self.user_column] == user_id]
+        user_df = user_df[user_df[self.augmentation_column] == augmentation_id]
+        
+        return user_df, user_id
+        
+        
 def cut_by_in_sequence_length(
     sorted_df : pd.DataFrame,
     user_column : str,
@@ -228,13 +294,33 @@ def make_item_dropped_df(
         
     return dropped_df
     
+
+def check_user_num_consistancy(
+    user_column : str,
+    train_df : pd.DataFrame,
+    valid_df : pd.DataFrame,
+    test_df : pd.DataFrame,
+) -> bool :
     
+    if len(train_df[user_column].unique()) == len(valid_df[user_column].unique()) and \
+        len(valid_df[user_column].unique()) == len(test_df[user_column].unique()) :
+        logger.info("SRData : User Number is Consistent")
+        return True
+    else :
+        logger.warning("SRData : User Number is not Consistent")
+        return False
+
+
+
 def make_sr_dataset(
     df_path : str,
     user_column : str,
     item_column : str,
     interaction_column : str,
     timestamp_column : str,
+    augmentation_column : str = None,
+    use_augmentation : bool = False,
+    max_augmentation_idx : int = 0,
     partitioned_df_path : str = None,
     save_partitioned_df_path : str = None,
     min_sequence_length : int = None, 
@@ -248,69 +334,94 @@ def make_sr_dataset(
     dropping_user_id : List[int] = None
 ) -> Tuple[SequentialRecommendationDataset, SequentialRecommendationDataset, SequentialRecommendationDataset] :
     
-    try :
-        train_df = pd.read_csv(os.path.join(partitioned_df_path, 'train.csv'))
+    if use_augmentation :
+        logger.warning("SRData with Augmentation is only availiable for reading")
+        train_with_augmentation_df = pd.read_csv(os.path.join(partitioned_df_path, 'train.csv'))
+        
+        ## drop the augmentation index that is greater than max_augmentation_idx
+        train_with_augmentation_df = train_with_augmentation_df[train_with_augmentation_df[augmentation_column] <= max_augmentation_idx]
+        train_with_augmentation_df = train_with_augmentation_df.reset_index(drop=True)
+        
         valid_df = pd.read_csv(os.path.join(partitioned_df_path, 'valid.csv'))
         test_df = pd.read_csv(os.path.join(partitioned_df_path, 'test.csv'))
         
-        user_num_trian = len(train_df[user_column].unique())
-        user_num_valid = len(valid_df[user_column].unique())
-        user_num_test = len(test_df[user_column].unique())
+        check_user_num_consistancy(user_column, train_with_augmentation_df, valid_df, test_df)
         
-        if user_num_trian == user_num_valid and user_num_valid == user_num_test :
-            logger.info("SRData : User Number is Consistent")
-        else :
-            logger.warning("SRData : User Number is not Consistent")
+        user_num = len(test_df[user_column].unique())
+        item_num = max(test_df[item_column].unique())
         
-    except :
-        # Sort Dataframe by user and timestamp
-        df = pd.read_csv(df_path, header = 0, sep = '\t')
-        df = df.sort_values([user_column, timestamp_column])
-
-        ## Cut by min_sequence_length
-        ##if min_sequence_length :
-        ##    df = cut_by_in_sequence_length(df, user_column, min_sequence_length)
+        trainset = SequentialRecommendationDatasetWithAugmentation(
+            train_with_augmentation_df,
+            user_column,
+            item_column,
+            interaction_column,
+            timestamp_column,
+            augmentation_column,
+            min_sequence_length,
+            max_sequence_length,
+            user_num,
+            item_num,
+            padding_value
+        )
         
-        ## Try to drop if drop method exist
-        if itemdrop_method != "":
-            dropped_df = make_item_dropped_df(
-                df = df,
-                user_column = user_column,
-                itemdrop_method = itemdrop_method,
-                offset = offset,
-                dropcount = dropcount,
-                dropping_user_id = dropping_user_id
-            )
-            df = dropped_df
+        
+    else :   
+        try :
+            train_df = pd.read_csv(os.path.join(partitioned_df_path, 'train.csv'))
+            valid_df = pd.read_csv(os.path.join(partitioned_df_path, 'valid.csv'))
+            test_df = pd.read_csv(os.path.join(partitioned_df_path, 'test.csv'))
             
-        # Split Dataframe in to train, valid, test according to leave one out strategy
-        train_df, valid_df, test_df = split_dataframe_into_train_valid_test(df, user_column)
+            check_user_num_consistancy(user_column, train_df, valid_df, test_df)
+            
+        except :
+            # Sort Dataframe by user and timestamp
+            df = pd.read_csv(df_path, header = 0, sep = '\t')
+            df = df.sort_values([user_column, timestamp_column])
+
+            ## Cut by min_sequence_length
+            ##if min_sequence_length :
+            ##    df = cut_by_in_sequence_length(df, user_column, min_sequence_length)
+            
+            ## Try to drop if drop method exist
+            if itemdrop_method != "":
+                dropped_df = make_item_dropped_df(
+                    df = df,
+                    user_column = user_column,
+                    itemdrop_method = itemdrop_method,
+                    offset = offset,
+                    dropcount = dropcount,
+                    dropping_user_id = dropping_user_id
+                )
+                df = dropped_df
+                
+            # Split Dataframe in to train, valid, test according to leave one out strategy
+            train_df, valid_df, test_df = split_dataframe_into_train_valid_test(df, user_column)
+            
+        if save_partitioned_df_path :
+            if not os.path.exists(save_partitioned_df_path):
+                os.makedirs(save_partitioned_df_path)
+            
+            train_df.to_csv(os.path.join(save_partitioned_df_path, 'train.csv'), index = False)
+            valid_df.to_csv(os.path.join(save_partitioned_df_path, 'valid.csv'), index = False)
+            test_df.to_csv(os.path.join(save_partitioned_df_path, 'test.csv'), index = False)
         
-    if save_partitioned_df_path :
-        if not os.path.exists(save_partitioned_df_path):
-            os.makedirs(save_partitioned_df_path)
+        ## Fix user_num and item_num according to test_df
+        user_num = len(test_df[user_column].unique())
+        item_num = max(test_df[item_column].unique())
+            
+        trainset = SequentialRecommendationDataset(
+            train_df,
+            user_column,
+            item_column,
+            interaction_column,
+            timestamp_column,
+            min_sequence_length,
+            max_sequence_length,
+            user_num,
+            item_num,
+            padding_value
+        )
         
-        train_df.to_csv(os.path.join(save_partitioned_df_path, 'train.csv'), index = False)
-        valid_df.to_csv(os.path.join(save_partitioned_df_path, 'valid.csv'), index = False)
-        test_df.to_csv(os.path.join(save_partitioned_df_path, 'test.csv'), index = False)
-    
-    ## Fix user_num and item_num according to test_df
-    user_num = len(test_df[user_column].unique())
-    item_num = max(test_df[item_column].unique())
-        
-    trainset = SequentialRecommendationDataset(
-        train_df,
-        user_column,
-        item_column,
-        interaction_column,
-        timestamp_column,
-        min_sequence_length,
-        max_sequence_length,
-        user_num,
-        item_num,
-        padding_value
-    )
-    
     validset = SequentialRecommendationDataset(
         valid_df,
         user_column,
@@ -351,6 +462,9 @@ def load_sr_data(
         config.data.item_column,
         config.data.interaction_column,
         config.data.timestamp_column,
+        config.data.augmentation_column,
+        config.data.use_augmentation,
+        config.data.max_augmentation_idx,
         config.data.partitioned_df_path,
         config.data.save_partitioned_df_path,
         config.data.min_sequence_length,

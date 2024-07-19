@@ -34,6 +34,10 @@ def extend_cfg_for_sasrec_ml1m(cfg) :
     cfg.data.item_column = 'item_id:token'
     cfg.data.interaction_column = 'rating:float'
     cfg.data.timestamp_column = 'timestamp:float'
+    cfg.data.augmentation_column = 'augmentation_idx:token'
+    cfg.data.use_augmentation = False
+    cfg.data.max_augmentation_idx = 0 ## only load augmentation column values less and equal to this value 
+    
     cfg.data.partitioned_df_path = '../../../../data1/donghoon/FederatedScopeData/ml-1m/split'
     cfg.data.save_partitioned_df_path = '../../../../data1/donghoon/FederatedScopeData/ml-1m/split'
     cfg.data.min_sequence_length = 5

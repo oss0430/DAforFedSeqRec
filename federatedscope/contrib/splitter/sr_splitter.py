@@ -10,7 +10,14 @@ from federatedscope.core.splitters import BaseSplitter
 
 
 class SRSpliiter(BaseSplitter):
-    ## Based on dataset type SequentialRecommendationDataset at federatedscope/contrib/data/sr_data.py
+    
+    """
+        Splitting SequentialRecommendationDataset
+        federatedscope.contrib.data.sr_data.SequentialRecommendationDataset
+        
+        mainly matches the train, valid and test user_id
+        for each client. (Client is the User)
+    """
     
     def __init__(self, client_num):
         super(SRSpliiter, self).__init__(client_num)
@@ -27,12 +34,17 @@ class SRSpliiter(BaseSplitter):
             idxs = range(0, len(user_ids))
             
             for idx in idxs :
-                idx_range = [idx]
+                idx_range = dataset._from_user_idx_get_user_subset_range(idx)
                 client_dataset = Subset(dataset, idx_range)
                 data_list.append(client_dataset)
             return data_list
         
         elif len(user_ids) > self.client_num :
+            
+            ## TODO :
+            ## Add case where we track the user_id when augmentation is used
+            ## currently when augmentation is used the given prior are not the user ids but
+            ## the indices for each instance consist of multiple instance from the same user.
             if prior :         
                 ## prior is the list of client_ids(list) for each train_split
                 assert len(prior) == self.client_num, \
