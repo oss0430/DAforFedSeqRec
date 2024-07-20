@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args" : [
-                "--cfg", "run_configs/augmentation_test/ml-1m_sasrec_augmentation_10_prob_1-e1.yaml"
+                "--cfg", "run_configs/augmentation_test/ml-1m_sasrec_augmentation_10_prob_1-e1_debug.yaml"
             ]
         }
     ]

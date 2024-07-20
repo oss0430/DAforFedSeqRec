@@ -152,7 +152,9 @@ class SequentialRecommendationDatasetWithAugmentation(SequentialRecommendationDa
     
     
     def _get_user_df_and_user_id(self, idx: int):
-        user_id = idx // self.number_of_augmentation
+        user_offset = idx // self.number_of_augmentation
+        user_id = self.df[self.user_column].unique()[user_offset]
+        
         augmentation_id = idx % self.number_of_augmentation
         ## get the correct user and correct augmentation
         user_df = self.df[self.df[self.user_column] == user_id]
