@@ -1021,3 +1021,221 @@ class FedRunner(object):
         except Exception as error:
             logger.warning(f'Completeness check failed for {error}!')
         return
+
+
+
+class StandAloneShadowRunner(StandaloneRunner):
+    """
+    This class is used to construct an FL course, for utilizing shadow clients
+    which includes `_set_up` and `run`.
+
+    Arguments:
+        data: The data used in the FL courses, which are formatted as \
+        ``{'ID':data}`` for standalone mode. More details can be found in \
+        federatedscope.core.auxiliaries.data_builder .
+        server_class: The server
+    """
+    def _construct_shadow_map(self) :
+        return {i : i for i in range(1, self.cfg.federate.client_num + 1)}
+    
+    
+    def _update_shadow_map(self, proxy_id, shadow_id):
+        self.shadow_map[proxy_id] = shadow_id
+    
+    
+    def get_proxy_shadow_client_data(self, proxy_id):
+        return self.data[self.shadow_map[proxy_id]]
+    
+    
+    def set_proxy_client_data(self, proxy_id, data):
+        self.client[proxy_id].data = data
+        self.client[proxy_id].trainer.ctx.data = data
+        new_init_dict = self.client[proxy_id].trainer.parse_data(data)
+        self.client[proxy_id].trainer.ctx.merge_from_dict(new_init_dict)
+    
+    
+    def _set_up(self):
+        """
+        Maintain the client in the number of sample_client_num
+        and assign data after.
+        """
+        self.is_run_online = True if self.cfg.federate.online_aggr else False
+        self.shared_comm_queue = deque()
+
+        if self.cfg.backend == 'torch':
+            import torch
+            torch.set_num_threads(1)
+
+        assert self.cfg.federate.client_num != 0, \
+            "In StandAloneShadowClient mode, self.cfg.federate.client_num should be " \
+            "non-zero. " \
+            "This is usually cased by using synthetic data and users not " \
+            "specify a non-zero value for client_num"
+
+        if self.cfg.federate.method == "global":
+            self.cfg.defrost()
+            self.cfg.federate.client_num = 1
+            self.cfg.federate.sample_client_num = 1
+            self.cfg.freeze()
+
+        # sample resource information
+        if self.resource_info is not None:
+            if len(self.resource_info) < self.cfg.federate.client_num + 1:
+                replace = True
+                logger.warning(
+                    f"Because the provided the number of resource information "
+                    f"{len(self.resource_info)} is less than the number of "
+                    f"participants {self.cfg.federate.client_num + 1}, one "
+                    f"candidate might be selected multiple times.")
+            else:
+                replace = False
+            sampled_index = np.random.choice(
+                list(self.resource_info.keys()),
+                size=self.cfg.federate.client_num + 1,
+                replace=replace)
+            server_resource_info = self.resource_info[sampled_index[0]]
+            client_resource_info = [
+                self.resource_info[x] for x in sampled_index[1:]
+            ]
+        else:
+            server_resource_info = None
+            client_resource_info = None
+
+        self.server = self._setup_server(
+            resource_info=server_resource_info,
+            client_resource_info=client_resource_info)
+
+        self.client = dict()
+        # assume the client-wise data are consistent in their input&output
+        # shape
+        self._shared_client_model = get_model(
+            self.cfg.model, self.data[1], backend=self.cfg.backend
+        ) if self.cfg.federate.share_local_model else None
+        
+        """
+        Only load in federate.sample_client_num clients as shadows
+        """
+        self.shadow_map = self._construct_shadow_map()
+        for proxy_client_id in range(1, self.cfg.federate.sample_client_num + 1):
+            self.client[proxy_client_id] = self._setup_client(
+                client_id=proxy_client_id,
+                client_model=self._shared_client_model,
+                resource_info=client_resource_info[proxy_client_id - 1]
+                if client_resource_info is not None else None)
+
+        # in standalone mode, by default, we print the trainer info only
+        # once for better logs readability
+        trainer_representative = self.client[1].trainer
+        if trainer_representative is not None and hasattr(
+                trainer_representative, 'print_trainer_meta_info'):
+            trainer_representative.print_trainer_meta_info()
+    
+    
+    def _setup_server(self, resource_info=None, client_resource_info=None):
+        """
+        Set up and instantiate the server.
+
+        Args:
+            resource_info: information of resource
+            client_resource_info: information of client's resource
+
+        Returns:
+            Instantiate server.
+        """
+        assert self.server_class is not None, \
+            "`server_class` cannot be None."
+        self.server_id = 0
+        server_data, model, kw = self._get_server_args(resource_info,
+                                                       client_resource_info)
+        """
+        Shadow Runnuer 
+            server.client_num = federate.standalong_args.shadow_client_num
+            to able to do this we need sampler to be uniform
+        """
+        assert self.cfg.federate.sampler == 'uniform', \
+            "Shadow Runner only supports uniform sampler"
+            
+        self._server_device = self.gpu_manager.auto_choice()
+        server = self.server_class(
+            ID=self.server_id,
+            config=self.cfg,
+            data=server_data,
+            model=model,
+            client_num=self.cfg.federate.standalone_args.shadow_client_num,
+            total_round_num=self.cfg.federate.total_round_num,
+            device=self._server_device,
+            unseen_clients_id=self.unseen_clients_id,
+            **kw)
+        ## change back to the original client_num
+        ## for server-side start up trigger : 
+        ## refer to federatedscope.core.workers.server.Server.trigger_for_start()
+        server.client_num = self.cfg.federate.client_num
+        if self.cfg.nbafl.use:
+            from federatedscope.core.trainers.trainer_nbafl import \
+                wrap_nbafl_server
+            wrap_nbafl_server(server)
+        if self.cfg.vertical.use:
+            from federatedscope.vertical_fl.utils import wrap_vertical_server
+            server = wrap_vertical_server(server, self.cfg)
+        if self.cfg.fedswa.use:
+            from federatedscope.core.workers.wrapper import wrap_swa_server
+            server = wrap_swa_server(server)
+        logger.info('Server has been set up ... ')
+        return self.feat_engr_wrapper_server(server)
+            
+            
+    def _handle_msg(self, msg, rcv=-1):
+        """
+        To simulate the message handling process (used only for the \
+        standalone mode)
+        """
+        if rcv != -1:
+            # simulate broadcast one-by-one
+            self.client[rcv].msg_handlers[msg.msg_type](msg)
+            return
+
+        _, receiver, msg_type = msg.sender, msg.receiver, msg.msg_type
+        
+        download_bytes, upload_bytes = msg.count_bytes()
+        if not isinstance(receiver, list):
+            receiver = [receiver]
+        
+        if msg_type == 'evaluate':
+            ## clone all the messages to the number of 
+            receiver = list(range(1, self.cfg.federate.standalone_args.shadow_client_num + 1))
+        
+        ## client address starts from one
+        available_clients = list(self.client.keys())
+        for each_receiver in receiver:
+            if each_receiver == 0:
+                ## This need to change where we keep track of proxy ids
+                ## so that sampler reset properly at the server if client was mapped as 51 to shadow client 1
+                ## the sender must appear as 51 not 0
+                proxy_client_sender = msg.sender
+                shadow_client_sender = self.shadow_map[proxy_client_sender]
+                msg.sender = shadow_client_sender
+                
+                self.server.msg_handlers[msg.msg_type](msg)
+                self.server._monitor.track_download_bytes(download_bytes)
+            else:
+                ## assign the data to the shadow clients
+                assigned_proxy_client = available_clients.pop(0)
+                self._update_shadow_map(assigned_proxy_client, each_receiver)
+                shadow_client_data = self.get_proxy_shadow_client_data(assigned_proxy_client)
+                
+                logger.info(f"Assigning data for user {each_receiver}, to shadow client {assigned_proxy_client}")
+                
+                self.set_proxy_client_data(assigned_proxy_client, shadow_client_data)
+                
+                ## Now we can run the message handler
+                self.client[assigned_proxy_client].msg_handlers[msg.msg_type](msg)
+                self.client[assigned_proxy_client]._monitor.track_download_bytes(
+                    download_bytes)
+                
+                ## TODO :
+                ## Make possible make_global_eval False
+                if msg_type == 'evaluate':
+                    ## reset and add back to the available clients
+                    self.client[assigned_proxy_client].data = None
+                    available_clients.append(assigned_proxy_client)
+                    

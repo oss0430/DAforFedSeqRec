@@ -46,9 +46,11 @@ class SRSpliiter(BaseSplitter):
             ## currently when augmentation is used the given prior are not the user ids but
             ## the indices for each instance consist of multiple instance from the same user.
             if prior :         
+                ## NOTE :
+                ## Modified for shadow clients
                 ## prior is the list of client_ids(list) for each train_split
-                assert len(prior) == self.client_num, \
-                    f"Number of client splited in train do not match with client_num ({self.client_num})"
+                # assert len(prior) == self.client_num, \
+                #    f"Number of client splited in train do not match with client_num ({self.client_num})"
                 
                 for idx_range in prior:
                     ## we must pass the index of the user_ids not the user_ids
@@ -58,8 +60,10 @@ class SRSpliiter(BaseSplitter):
                     data_list.append(client_dataset)    
                 return data_list
             else :
-                ## Prior needs to be created we are currently first time splitting
-                idxs = random.sample(range(0,len(user_ids)), k=len(user_ids))[:self.client_num]
+                ## NOTE :
+                ## Modified for shadow clients
+                ## idxs = random.sample(range(0,len(user_ids)), k=len(user_ids))[:self.client_num]
+                idxs = range(0, len(user_ids)) 
                 
                 for idx in idxs :
                     idx_range = [idx]

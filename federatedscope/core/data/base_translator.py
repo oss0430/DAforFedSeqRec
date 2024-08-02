@@ -105,7 +105,11 @@ class BaseDataTranslator:
         """
 
         # Initialization
-        client_num = self.global_cfg.federate.client_num
+        try:
+            if self.global_cfg.federate.standalone_args.use_shadow :
+                client_num = self.global_cfg.federate.standalone_args.shadow_client_num
+        except :
+            client_num = self.global_cfg.federate.client_num
         split_train, split_val, split_test = [[None] * client_num] * 3
         train_label_distribution = None
 

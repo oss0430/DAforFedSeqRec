@@ -1,4 +1,4 @@
-from federatedscope.core.fed_runner import StandaloneRunner, DistributedRunner
+from federatedscope.core.fed_runner import StandaloneRunner, DistributedRunner, StandAloneShadowRunner
 from federatedscope.core.parallel.parallel_runner import \
     StandaloneMultiGPURunner
 
@@ -36,10 +36,13 @@ def get_runner(server_class,
     process_num = config.federate.process_num
 
     if mode == 'standalone':
-        if process_num <= 1:
-            runner_cls = StandaloneRunner
-        else:
-            runner_cls = StandaloneMultiGPURunner
+        if config.federate.standalone_args.use_shadow:
+            runner_cls = StandAloneShadowRunner
+        else :
+            if process_num <= 1:
+                runner_cls = StandaloneRunner
+            else:
+                runner_cls = StandaloneMultiGPURunner
     elif mode == 'distributed':
         runner_cls = DistributedRunner
 

@@ -19,6 +19,8 @@ def extend_fl_setting_cfg(cfg):
     cfg.federate.unseen_clients_rate = 0.0
     cfg.federate.total_round_num = 50
     cfg.federate.mode = 'standalone'
+    cfg.federate.standalone_args = CN(new_allowed=True)
+    
     cfg.federate.share_local_model = False
     cfg.federate.data_weighted_aggr = False  # If True, the weight of aggr is
     # the number of training samples in dataset.

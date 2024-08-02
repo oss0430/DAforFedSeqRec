@@ -14,6 +14,7 @@ import copy
 import torch
 import numpy as np
 
+TOPN = 100
 
 class SASRecTrainer(GeneralTorchTrainer):
     """
@@ -68,10 +69,6 @@ class SASRecTrainer(GeneralTorchTrainer):
             ctx.scheduler = get_scheduler(ctx.optimizer,
                                           **ctx.cfg[ctx.cur_mode].scheduler)
 
-        # TODO: the number of batch and epoch is decided by the current mode
-        #  and data split, so the number of batch and epoch should be
-        #  initialized at the beginning of the routine
-
         # prepare statistics
         ctx.loss_batch_total = CtxVar(0., LIFECYCLE.ROUTINE)
         ctx.loss_regular_total = CtxVar(0., LIFECYCLE.ROUTINE)
@@ -91,17 +88,20 @@ class SASRecTrainer(GeneralTorchTrainer):
         item_seq, item_seq_len, target_item = item_seq.to(ctx.device), item_seq_len.to(ctx.device), target_item.to(ctx.device)
         
         outputs = ctx.model(item_seq, item_seq_len)
-        pred = ctx.model.full_sort_predict(item_seq, item_seq_len)
+        #pred = ctx.model.full_sort_predict(item_seq, item_seq_len)
         
         test_item_emb = ctx.model.item_embedding.weight
         logits = torch.matmul(outputs, test_item_emb.transpose(0,1))
         
-        ctx.loss_batch = ctx.criterion(logits, target_item)
+        ctx.loss_batch = CtxVar(ctx.criterion(logits, target_item), LIFECYCLE.BATCH)
         
         ctx.y_true = CtxVar(target_item, LIFECYCLE.BATCH)
-        ctx.y_pred = CtxVar(logits, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
+        ## For Better Memory Utilization we only store topn predictions indices
+        _, top_k_indices = torch.topk(logits, TOPN, dim=1)
+        ctx.y_pred = CtxVar(top_k_indices, LIFECYCLE.BATCH)
+        ## ctx.y_pred = CtxVar(logits, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
 
-        ctx.batch_size = len(target_item)
+        ctx.batch_size = CtxVar(len(target_item), LIFECYCLE.BATCH)
 
     
     def _hook_on_batch_end(self, ctx):
@@ -195,10 +195,6 @@ class SASRecTrainer(GeneralTorchTrainer):
             ctx.scheduler = get_scheduler(ctx.optimizer,
                                           **ctx.cfg[ctx.cur_mode].scheduler)
 
-        # TODO: the number of batch and epoch is decided by the current mode
-        #  and data split, so the number of batch and epoch should be
-        #  initialized at the beginning of the routine
-
         # prepare statistics
         ctx.num_samples = CtxVar(0, LIFECYCLE.ROUTINE)
         ctx.outputs = CtxVar([], LIFECYCLE.ROUTINE)
@@ -233,7 +229,7 @@ class SASRecTrainer(GeneralTorchTrainer):
         ctx.input_embedding = CtxVar(input_embedding, LIFECYCLE.BATCH)
         ctx.item_seq_len = CtxVar(item_seq_len, LIFECYCLE.BATCH)
         
-        ctx.batch_size = len(target_item)
+        ctx.batch_size = CtxVar(len(target_item), LIFECYCLE.BATCH)
         
         ctx.y_true = CtxVar(target_item, LIFECYCLE.BATCH)
         ctx.y_pred = CtxVar(logits, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
@@ -393,12 +389,12 @@ class SASRecTrainer(GeneralTorchTrainer):
         test_item_emb = ctx.model.item_embedding.weight
         logits = torch.matmul(outputs, test_item_emb.transpose(0,1))
         
-        ctx.loss_batch = ctx.criterion(logits, target_item)
+        ctx.loss_batch = ctx.loss_batch = CtxVar(ctx.criterion(logits, target_item), LIFECYCLE.BATCH)
         
         ctx.y_true = CtxVar(target_item, LIFECYCLE.BATCH)
         ctx.y_pred = CtxVar(logits, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
 
-        ctx.batch_size = len(target_item)
+        ctx.batch_size = CtxVar(len(target_item), LIFECYCLE.BATCH)
         
         
     
@@ -408,3 +404,43 @@ def call_sasrec_trainer(trainer_type):
     
 
 register_trainer('sasrec_trainer', call_sasrec_trainer)
+
+
+class SASRecTrainerWithEmbeddingSpredoutRegularization(SASRecTrainer) :
+    
+    def __init__(self,
+                 model,
+                 data,
+                 device,
+                 config,
+                 only_for_eval = False,
+                 monitor = None):
+        super(SASRecTrainer, self).__init__(model, data, device, config, only_for_eval, monitor)
+        self.embedding_spreadout_regularizer = config.embedding_spreadout_regularizer
+    
+    
+    def _get_spredout_loss(self, model, positive_items, negative_items):
+        ## 
+        None
+    
+    def _hook_on_batch_forward(self, ctx):
+
+        data_batch = ctx.data_batch
+        item_seq = data_batch["item_seq"]
+        item_seq_len = data_batch["item_seq_len"]
+        target_item = data_batch["target_item"]
+        
+        item_seq, item_seq_len, target_item = item_seq.to(ctx.device), item_seq_len.to(ctx.device), target_item.to(ctx.device)
+        
+        outputs = ctx.model(item_seq, item_seq_len)
+        #pred = ctx.model.full_sort_predict(item_seq, item_seq_len)
+        spread_out_loss = self._get_spredout_loss(ctx.model)
+        test_item_emb = ctx.model.item_embedding.weight
+        logits = torch.matmul(outputs, test_item_emb.transpose(0,1))
+        
+        ctx.loss_batch =  CtxVar(ctx.criterion(logits, target_item)+ spread_out_loss, LIFECYCLE.BATCH) 
+        
+        ctx.y_true = CtxVar(target_item, LIFECYCLE.BATCH)
+        ctx.y_pred = CtxVar(logits, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
+
+        ctx.batch_size = CtxVar(len(target_item), LIFECYCLE.BATCH)
