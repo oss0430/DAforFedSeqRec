@@ -5,9 +5,9 @@ early_stop:
 federate:
   mode: standalone
   method : FedAvg
-  total_round_num: 200
+  total_round_num: 2500
   client_num: 6040 # 6040
-  sample_client_num: 10
+  sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : False 
 data:
@@ -21,7 +21,7 @@ data:
   max_augmentation_idx : 10 ## 1 + 10 augmentations
 dataloader :
   type : base
-  batch_size : 11
+  batch_size : 1
 model:
   type: sasrec
   hidden_dropout_prob: 0.0
@@ -30,13 +30,13 @@ train:
   batch_or_epoch : 'epoch'
   local_update_steps: 1
   optimizer:
-    lr: 0.001
+    lr: 0.01
 criterion:
-  type: CrossEntropyLoss
+  type: hinge
 trainer:
   type: sasrec_trainer
 eval:
-  freq: 1
+  freq: 100
   metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss
