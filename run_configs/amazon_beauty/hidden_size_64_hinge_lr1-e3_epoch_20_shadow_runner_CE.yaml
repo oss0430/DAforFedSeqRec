@@ -10,7 +10,7 @@ federate:
     use_one_hop_eval : True
   method : FedAvg
   sampler : uniform
-  total_round_num: 20000
+  total_round_num: 30000
   client_num: 16 #22363
   sample_client_num: 16
   sample_client_rate: -1.0
@@ -45,7 +45,7 @@ train:
   optimizer:
     lr: 0.01
 criterion:
-  type: hinge
+  type: CrossEntropyLoss
 trainer:
   type: sasrec_trainer
 eval:

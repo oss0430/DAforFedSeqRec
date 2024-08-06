@@ -41,32 +41,18 @@ class SRSpliiter(BaseSplitter):
         
         elif len(user_ids) > self.client_num :
             
-            ## TODO :
-            ## Add case where we track the user_id when augmentation is used
-            ## currently when augmentation is used the given prior are not the user ids but
-            ## the indices for each instance consist of multiple instance from the same user.
             if prior :         
-                ## NOTE :
-                ## Modified for shadow clients
-                ## prior is the list of client_ids(list) for each train_split
-                # assert len(prior) == self.client_num, \
-                #    f"Number of client splited in train do not match with client_num ({self.client_num})"
-                
-                for idx_range in prior:
-                    ## we must pass the index of the user_ids not the user_ids
-                    ## We consider each client_id - 1 == index
-                    idx_range = [idx - 1 for idx in idx_range]
+                for current_split_user_ids in prior:
+                    idx_range = []
+                    for user_id in current_split_user_ids :
+                        idx_range += dataset._from_user_idx_get_user_subset_range(user_id)
                     client_dataset = Subset(dataset, idx_range)
                     data_list.append(client_dataset)    
                 return data_list
             else :
-                ## NOTE :
-                ## Modified for shadow clients
-                ## idxs = random.sample(range(0,len(user_ids)), k=len(user_ids))[:self.client_num]
-                idxs = range(0, len(user_ids)) 
-                
+                idxs = range(0, len(user_ids))     
                 for idx in idxs :
-                    idx_range = [idx]
+                    idx_range = dataset._from_user_idx_get_user_subset_range(idx)
                     client_dataset = Subset(dataset, idx_range)
                     data_list.append(client_dataset)
                 return data_list

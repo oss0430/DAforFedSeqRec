@@ -16,7 +16,7 @@ import pandas as pd
 parser = argparse.ArgumentParser()
 parser.add_argument('-t', '--augmentation_type', type=str, default='random_replacing', choices=['random_replacing', 'cutting'])
 parser.add_argument('-p', '--replace_probability', type=float, default=0.1)
-parser.add_argument('-d', '--cut_direction', type=str, default='right', choices=['right', 'left'])
+parser.add_argument('-d', '--cut_direction', type=str, default='left', choices=['right', 'left'])
 parser.add_argument('-n', '--number_of_generation', type=int, default=60)
 parser.add_argument('-s', '--seed', type=int, default=42)
 
@@ -33,7 +33,7 @@ augmentation_column = 'augmentation_idx:token'
 augmentation_prob = args.replace_probability
 number_of_generation = args.number_of_generation
 augmentation_type = args.augmentation_type
-save_path_dir = f'../../../../data1/donghoon/FederatedScopeData/ml-1m/cutting_from_right'
+save_path_dir = f'../../../../data1/donghoon/FederatedScopeData/ml-1m/random_augmented_{augmentation_prob}'
 seed = args.seed
 user_gpu = True
 gpu_id = 0
@@ -101,7 +101,7 @@ def random_replacing(
     }
     
     ## Generate a augmented training sets
-    full_sequence_loader = DataLoader(full_sequence_dataset, batch_size=1, shuffle=True)
+    full_sequence_loader = DataLoader(full_sequence_dataset, batch_size=1, shuffle=False)
     for data_batch in tqdm(full_sequence_loader, desc='Generating augmented dataset') :
         user_id = data_batch['user_id']
         full_sequence = data_batch['full_sequence'].squeeze(0)
@@ -169,7 +169,7 @@ def cutting_augmentation(
     }
     
     ## Generate a augmented training sets
-    full_sequence_loader = DataLoader(full_sequence_dataset, batch_size=1, shuffle=True)
+    full_sequence_loader = DataLoader(full_sequence_dataset, batch_size=1, shuffle=False)
     for data_batch in tqdm(full_sequence_loader, desc='Generating augmented dataset') :
         user_id = data_batch['user_id']
         full_sequence = data_batch['full_sequence'].squeeze(0)

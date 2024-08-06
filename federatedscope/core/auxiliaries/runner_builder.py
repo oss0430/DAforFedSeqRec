@@ -36,8 +36,11 @@ def get_runner(server_class,
     process_num = config.federate.process_num
 
     if mode == 'standalone':
-        if config.federate.standalone_args.use_shadow:
-            runner_cls = StandAloneShadowRunner
+        if hasattr(config.federate, 'standalone_args'):
+            if getattr(config.federate.standalone_args, 'use_shadow', False):
+                runner_cls = StandAloneShadowRunner
+            else :
+                runner_cls = StandaloneRunner
         else :
             if process_num <= 1:
                 runner_cls = StandaloneRunner

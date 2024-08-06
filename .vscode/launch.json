@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args" : [
-                "--cfg", "run_configs/amazon_sports/hidden_size_64_hinge_lr1-e3_epoch_20_shadow_runner_debug.yaml"
+                "--cfg", "run_configs/augmentation_test/ML-1M_random_replace_using_shadow/augmentation_10_prob_1-e1_CE_lr_1e-4.yaml"
             ]
         }
     ]

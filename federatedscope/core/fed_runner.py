@@ -1234,8 +1234,10 @@ class StandAloneShadowRunner(StandaloneRunner):
                 
                 ## TODO :
                 ## Make possible make_global_eval False
+                ## Currently evaluation merging causes the total run to fail
+                ## Maybe check the server aggregation methods.
                 if msg_type == 'evaluate':
-                    ## reset and add back to the available clients
+                    ## reset and add back to the available client
                     self.client[assigned_proxy_client].data = None
                     available_clients.append(assigned_proxy_client)
                     

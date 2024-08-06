@@ -123,7 +123,8 @@ class BaseDataTranslator:
                         ## but the user_idx must be same for all client
                         train_label_distribution = []
                         for sr_dataset in split_train:
-                            current_split_user_ids = sr_dataset.indices
+                            current_split_user_ids = list(set([data['user_id'].item() for data in sr_dataset]))
+                            #current_split_user_ids = sr_dataset.indices
                             train_label_distribution.append(current_split_user_ids)
                     else :
                         train_label_distribution = [[j[1] for j in x]

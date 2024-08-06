@@ -1,18 +1,22 @@
 use_gpu: True
-device: 0
+device: 1
 early_stop:
   patience: 5
 federate:
   mode: standalone
   method : FedAvg
-  total_round_num: 2500
-  client_num: 6040 # 6040
+  total_round_num: 3000
+  client_num: 16 # 6040
   sample_client_num: 16
   sample_client_rate: -1.0
-  make_global_eval : False 
+  make_global_eval : True
+  standalone_args :
+    use_shadow : True
+    shadow_client_num : 6040
+    use_one_hop_eval : True
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
-  partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/ml-1m/random_augmented_0.4'
+  partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/ml-1m/cutting_from_left'
   type: sr_data
   consistent_label_distribution: True
   splitter : sr_splitter
@@ -41,3 +45,9 @@ eval:
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss
   count_flops: False
+#attack :
+#  attack_method : 'sr_targeted_segment_sasrec'
+#  attacker_id : []
+#  segment_item_ids : [2858, 260, 1196, 1210, 480, 2028, 589, 2571, 1270, 593, 1580, 1198, 608, 2762, 110, 2396, 1197, 527, 1617, 1265]
+#  target_item_id : 2308
+#  covisitation : True
