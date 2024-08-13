@@ -4,12 +4,13 @@ early_stop:
   patience: 5
 federate:
   mode: standalone
-  method : FedAvg
-  total_round_num: 3000
+  method : shadow
+  total_round_num: 30000
   client_num: 16 # 6040
   sample_client_num: 16
   sample_client_rate: -1.0
-  make_global_eval : True
+  make_global_eval : False
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/0813_cut-aug_left_hidden_size_64_CE_lr1-e4_epoch_1_shadow_round_30K.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 6040
@@ -18,7 +19,7 @@ data:
   root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
   partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/ml-1m/cutting_from_left'
   type: sr_data
-  consistent_label_distribution: True
+  consistent_label_distribution: False
   splitter : sr_splitter
   augmentation_column : 'augmentation_idx:token'
   use_augmentation : True
@@ -40,7 +41,7 @@ criterion:
 trainer:
   type: sasrec_trainer
 eval:
-  freq: 100
+  freq: 250
   metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss

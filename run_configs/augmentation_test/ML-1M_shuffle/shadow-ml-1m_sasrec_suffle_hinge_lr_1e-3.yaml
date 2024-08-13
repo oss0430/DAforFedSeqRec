@@ -1,25 +1,24 @@
 use_gpu: True
-device: 0
+device: 1
 early_stop:
   patience: 5
 federate:
   mode: standalone
-  method : shadow
-  total_round_num: 30000
+  method : FedAvg
+  total_round_num: 3000
   client_num: 16 # 6040
   sample_client_num: 16
   sample_client_rate: -1.0
-  make_global_eval : False
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/0813_rand-replace-aug_3e-1_hidden_size_64_CE_lr1-e4_epoch_1_shadow_round_30K.pt"
+  make_global_eval : True
   standalone_args :
     use_shadow : True
     shadow_client_num : 6040
     use_one_hop_eval : True
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
-  partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/ml-1m/random_augmented_0.3'
+  partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/ml-1m/shuffle'
   type: sr_data
-  consistent_label_distribution: False ## This can be only used when the datasets are sorted by user_ids
+  consistent_label_distribution: False
   splitter : sr_splitter
   augmentation_column : 'augmentation_idx:token'
   use_augmentation : True
@@ -35,13 +34,13 @@ train:
   batch_or_epoch : 'epoch'
   local_update_steps: 1
   optimizer:
-    lr: 0.001
+    lr: 0.01
 criterion:
-  type: CrossEntropyLoss
+  type: hinge
 trainer:
   type: sasrec_trainer
 eval:
-  freq: 250
+  freq: 100
   metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss
