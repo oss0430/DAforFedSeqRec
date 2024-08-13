@@ -1059,6 +1059,9 @@ class StandAloneShadowRunner(StandaloneRunner):
         Maintain the client in the number of sample_client_num
         and assign data after.
         """
+        assert self.cfg.federate.method == "shadow", \
+            "to use ShadowRunner, the method should be shadow"
+        
         self.is_run_online = True if self.cfg.federate.online_aggr else False
         self.shared_comm_queue = deque()
 
@@ -1208,36 +1211,23 @@ class StandAloneShadowRunner(StandaloneRunner):
         available_clients = list(self.client.keys())
         for each_receiver in receiver:
             if each_receiver == 0:
-                ## This need to change where we keep track of proxy ids
-                ## so that sampler reset properly at the server if client was mapped as 51 to shadow client 1
-                ## the sender must appear as 51 not 0
-                proxy_client_sender = msg.sender
-                shadow_client_sender = self.shadow_map[proxy_client_sender]
-                msg.sender = shadow_client_sender
-                
+                # proxy client automatically sends as if they are the shadow client
                 self.server.msg_handlers[msg.msg_type](msg)
                 self.server._monitor.track_download_bytes(download_bytes)
             else:
-                ## assign the data to the shadow clients
+                ## assign the data to the shadow clients first
                 assigned_proxy_client = available_clients.pop(0)
-                self._update_shadow_map(assigned_proxy_client, each_receiver)
-                shadow_client_data = self.get_proxy_shadow_client_data(assigned_proxy_client)
-                
-                logger.info(f"Assigning data for user {each_receiver}, to shadow client {assigned_proxy_client}")
-                
-                self.set_proxy_client_data(assigned_proxy_client, shadow_client_data)
+                shadow_client_data = self.data[each_receiver]
+                assign_map = {"proxy_client": assigned_proxy_client, "shadow_client": each_receiver}
+                logger.info(f"Assigning data :{assign_map}")
+                self.client[assigned_proxy_client].update_shadow_client(shadow_client_data, each_receiver)
                 
                 ## Now we can run the message handler
                 self.client[assigned_proxy_client].msg_handlers[msg.msg_type](msg)
                 self.client[assigned_proxy_client]._monitor.track_download_bytes(
                     download_bytes)
                 
-                ## TODO :
-                ## Make possible make_global_eval False
-                ## Currently evaluation merging causes the total run to fail
-                ## Maybe check the server aggregation methods.
                 if msg_type == 'evaluate':
                     ## reset and add back to the available client
-                    self.client[assigned_proxy_client].data = None
                     available_clients.append(assigned_proxy_client)
                     

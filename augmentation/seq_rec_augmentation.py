@@ -6,7 +6,7 @@ import random
 from typing import List
 
 from federatedscope.core.auxiliaries.utils import setup_seed
-
+from typing import List, Dict
 from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-t', '--augmentation_type', type=str, default='random_replacing', choices=['random_replacing', 'cutting'])
+parser.add_argument('-t', '--augmentation_type', type=str, default='random_replacing', choices=['random_replacing', 'cutting', 'shuffle'])
 parser.add_argument('-p', '--replace_probability', type=float, default=0.1)
 parser.add_argument('-d', '--cut_direction', type=str, default='left', choices=['right', 'left'])
 parser.add_argument('-n', '--number_of_generation', type=int, default=60)
@@ -33,7 +33,7 @@ augmentation_column = 'augmentation_idx:token'
 augmentation_prob = args.replace_probability
 number_of_generation = args.number_of_generation
 augmentation_type = args.augmentation_type
-save_path_dir = f'../../../../data1/donghoon/FederatedScopeData/ml-1m/random_augmented_{augmentation_prob}'
+save_path_dir = f'../../../../data1/donghoon/FederatedScopeData/ml-1m/shuffle'
 seed = args.seed
 user_gpu = True
 gpu_id = 0
@@ -80,7 +80,7 @@ def replace_sequence(
     item_sequence : torch.Tensor,
     max_item_ids : int,
     probablity : float
-) :
+) -> torch.Tensor:
     ## Replace the item_sequence with random items
     mask = torch.rand(item_sequence.size()) < probablity
     random_values = torch.randint(1, max_item_ids+1, item_sequence.size())
@@ -124,7 +124,7 @@ def cut_sequence(
     number_of_generation : int,
     max_sequence_length : int,
     direction : str = 'right'
-) :
+) -> List[torch.Tensor]:
     ## Cut the sequence
     sequence_length = len(item_sequence)
     if sequence_length >= max_sequence_length :
@@ -155,7 +155,6 @@ def cut_sequence(
     return cut_sequences
 
 
-
 def cutting_augmentation(
     full_sequence_dataset : SequenceDataset,
     number_of_generation : int = 60,
@@ -182,6 +181,48 @@ def cutting_augmentation(
                                      max_sequence_length)
         
         resulted_dataset['list_of_augmented'].append(cut_sequences)
+
+    return resulted_dataset
+
+
+def shuffle_sequence(
+    item_sequence : torch.Tensor,
+    number_of_generation : int
+) -> List[torch.Tensor]:
+    ## Shuffle the sequence
+    shuffled_sequences = []
+    
+    for i in range(number_of_generation) :
+        shuffled_sequence = item_sequence[torch.randperm(item_sequence.size(0))]
+        shuffled_sequences.append(shuffled_sequence)
+    
+    return shuffled_sequences
+
+
+def shuggle_augmentation(
+    full_sequence_dataset : SequenceDataset,
+    number_of_generation : int = 60,
+    max_item_ids : int = 3952,
+    max_sequence_length : int = 200
+) :
+    resulted_dataset = {
+        'user_id' : [],
+        'original' : [],
+        'list_of_augmented' :[]
+    }
+    
+    ## Generate a augmented training sets
+    full_sequence_loader = DataLoader(full_sequence_dataset, batch_size=1, shuffle=False)
+    for data_batch in tqdm(full_sequence_loader, desc='Generating augmented dataset') :
+        user_id = data_batch['user_id']
+        full_sequence = data_batch['full_sequence'].squeeze(0)
+        
+        resulted_dataset['original'].append(full_sequence)
+        resulted_dataset['user_id'].append(user_id)
+        
+        shuffled_sequences = shuffle_sequence(full_sequence, number_of_generation)
+        
+        resulted_dataset['list_of_augmented'].append(shuffled_sequences)
 
     return resulted_dataset
 
@@ -251,6 +292,8 @@ def __main__():
         resulted_dataset = random_replacing(full_sequence_dataset, replace_prob=augmentation_prob, number_of_generation=number_of_generation, max_item_ids=max_item_ids)
     elif augmentation_type == 'cutting' :
         resulted_dataset = cutting_augmentation(full_sequence_dataset, number_of_generation=number_of_generation, max_item_ids=max_item_ids, max_sequence_length=max_sequence_length)
+    elif augmentation_type == 'shuffle' :
+        resulted_dataset = shuggle_augmentation(full_sequence_dataset, number_of_generation=number_of_generation, max_item_ids=max_item_ids, max_sequence_length=max_sequence_length)
     else :
         raise ValueError('Invalid augmentation type')
     
