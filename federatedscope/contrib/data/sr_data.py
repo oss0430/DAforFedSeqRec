@@ -81,8 +81,11 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
         target_item = np.array(user_interaction[-1])
         
         if self.max_sequence_length is not None :
-            if len(item_seq) > self.max_sequence_length :
-                item_seq = item_seq[:self.max_sequence_length]
+            sequence_length = len(item_seq)
+            if sequence_length > self.max_sequence_length :
+                start_index = self.max_sequence_length - sequence_length
+                ## Critical Error here and fixed it.
+                item_seq = item_seq[start_index:]
                 item_seq_len = np.array([self.max_sequence_length])
             else :
                 item_seq = np.pad(
@@ -134,28 +137,51 @@ class SequentialRecommendationDatasetWithAugmentation(SequentialRecommendationDa
         )
         self.augmentation_column = augmentation_column
         self.number_of_augmentation = len(self.df[self.augmentation_column].unique())
+        self._register_augmentation_range_dict()
     
+    
+    def _register_augmentation_range_dict(self):
+        
+        augmentation_range_dict = {}
+        idx_to_user_id_and_augmentation_id = {}
+        
+        current_start = 0
+        current_end = 0
+        
+        logger.info("SRData : Creating Augmentation Range Dictionary")
+        
+        for user_id in self.df[self.user_column].unique():
+            user_df = self.df[self.df[self.user_column] == user_id]
+            
+            for augmentation_id in user_df[self.augmentation_column].unique():
+                idx_to_user_id_and_augmentation_id[current_end] = {
+                    "user_id" : user_id, "augmentation_id" : augmentation_id}
+                current_end += 1
+            
+            augmentation_range_dict[user_id] = [idx for idx in range(current_start, current_end)]
+            current_start = current_end
+        
+        self.idx_to_user_id_and_augmentation_id = idx_to_user_id_and_augmentation_id
+        self.augmentation_range = augmentation_range_dict
+
+
     def _from_user_idx_get_user_subset_range(self, idx):
         ## given idx is a range of ids corresponded to
-        ## self.df[self.user_column]
-        start = idx * self.number_of_augmentation
-        end = start + self.number_of_augmentation
-        
-        return [i for i in range(start, end)]
-        
+        user_id = idx + 1
+        return self.augmentation_range[user_id] 
         
     
     def __len__(self) :
-        number_of_augmentation = self.number_of_augmentation
-        number_of_user = len(self.df[self.user_column].unique())
-        return number_of_augmentation * number_of_user
+        return len(self.idx_to_user_id_and_augmentation_id.keys())
     
     
     def _get_user_df_and_user_id(self, idx: int):
-        user_offset = idx // self.number_of_augmentation
-        user_id = self.df[self.user_column].unique()[user_offset]
         
-        augmentation_id = idx % self.number_of_augmentation
+        current_pair = self.idx_to_user_id_and_augmentation_id[idx]
+        
+        user_id = current_pair["user_id"]
+        augmentation_id = current_pair["augmentation_id"]
+        
         ## get the correct user and correct augmentation
         user_df = self.df[self.df[self.user_column] == user_id]
         user_df = user_df[user_df[self.augmentation_column] == augmentation_id]
