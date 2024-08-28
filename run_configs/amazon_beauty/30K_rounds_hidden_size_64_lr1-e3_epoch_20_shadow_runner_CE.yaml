@@ -15,7 +15,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : False
-  save_to : "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/0823_30K_rounds_hidden_size_64_lr1-e4_epoch_20_shadow_runner_CE.pt"
+  save_to : "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/0823_30K_rounds_hidden_size_64_lr1-e3_epoch_20_shadow_runner_CE.pt"
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped
   type: sr_data
@@ -41,7 +41,7 @@ train:
   batch_or_epoch : 'epoch'
   local_update_steps: 20
   optimizer:
-    lr: 0.001
+    lr: 0.01
 criterion:
   type: CrossEntropyLoss
 trainer:
