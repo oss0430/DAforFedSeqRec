@@ -14,6 +14,9 @@ import numpy as np
 import pandas as pd
 
 parser = argparse.ArgumentParser()
+parser.add_argument('-o', '--origianl_dataset', type=str, default='ml-1m', choices=['ml-1m', 'amazon_beauty', 'amazon_sports'])
+parser.add_argument('-r', '--result_path', type=str, default='')
+parser.add_argument('-c', '--aug_column_name', type=str, default='augmentation_idx:token')
 parser.add_argument('-t', '--augmentation_type', type=str, default='random_replacing', choices=['random_replacing', 'cutting', 'shuffle'])
 parser.add_argument('-p', '--replace_probability', type=float, default=0.1)
 parser.add_argument('-d', '--cut_direction', type=str, default='left', choices=['right', 'left'])
@@ -22,22 +25,42 @@ parser.add_argument('-s', '--seed', type=int, default=42)
 
 args = parser.parse_args()
 
-## configurations
-train_dataframe_path = '../../../../data1/donghoon/FederatedScopeData/ml-1m/split/train.csv'
-user_column = 'user_id:token'
-item_column = 'item_id:token'
-timestamp_column = 'timestamp:float'
-max_item_ids = 3952
-max_sequence_length = 200
-augmentation_column = 'augmentation_idx:token'
-augmentation_prob = args.replace_probability
-number_of_generation = args.number_of_generation
-augmentation_type = args.augmentation_type
-save_path_dir = f'../../../../data1/donghoon/FederatedScopeData/ml-1m/shuffle'
-seed = args.seed
-user_gpu = True
-gpu_id = 0
-setup_seed(seed)
+## ML-1m configurations
+ml_1m_configs = {
+    "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/ml-1m/split/train.csv',
+    "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/ml-1m/',
+    "user_column" : 'user_id:token',
+    "item_column" : 'item_id:token',
+    "timestamp_column" : 'timestamp:float',
+    "max_item_ids" : 3952,
+    "max_sequence_length" : 200,
+    "min_sequence_length" : 3
+}
+
+## Amazon_Beauty configurations
+amazon_beauty_configs = {
+    "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped/split/train.csv',
+    "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped/',
+    "user_column" : 'user_id:token',
+    "item_column" : 'item_id:token',
+    "timestamp_column" : 'timestamp:float',
+    "max_item_ids" : 259204,
+    "max_sequence_length" : 50,
+    "min_sequence_length" : 3
+}
+
+## Amazon_Sports configurations
+amazon_sports_configs = {
+    "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core_mapped/split/train.csv',
+    "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core_mapped/',
+    "user_column" : 'user_id:token',
+    "item_column" : 'item_id:token',
+    "timestamp_column" : 'timestamp:float',
+    "max_item_ids" : 532197,
+    "max_sequence_length" : 50,
+    "min_sequence_length" : 3
+}
+
 
 class SequenceDataset(Dataset) :
     
@@ -123,11 +146,12 @@ def cut_sequence(
     item_sequence : torch.Tensor,
     number_of_generation : int,
     max_sequence_length : int,
-    direction : str = 'right'
+    direction : str = 'right',
+    min_sequence_length : int = 5
 ) -> List[torch.Tensor]:
     ## Cut the sequence
     sequence_length = len(item_sequence)
-    if sequence_length >= max_sequence_length :
+    if sequence_length >= max_sequence_length and direction == 'left' :
         cut_range = list(range(sequence_length - max_sequence_length, sequence_length))
     else :
         cut_range = list(range(sequence_length))
@@ -137,20 +161,21 @@ def cut_sequence(
     i= 0
     if direction == 'right' :
         while i < number_of_generation :
+            if len(cut_range) <= min_sequence_length :
+                break
             cut_end = cut_range.pop()
             augmented_seq = item_sequence[:cut_end]
             cut_sequences.append(augmented_seq)
             i = i + 1
-            if cut_range == [] :
-                break
     else :  
+        cut_range.pop(0) ## remove the first element
         while i < number_of_generation :
+            if len(cut_range) <= min_sequence_length :
+                break
             cut_start = cut_range.pop(0)
             augmented_seq = item_sequence[cut_start:]
             cut_sequences.append(augmented_seq)
             i = i + 1
-            if cut_range == [] :
-                break
 
     return cut_sequences
 
@@ -159,7 +184,9 @@ def cutting_augmentation(
     full_sequence_dataset : SequenceDataset,
     number_of_generation : int = 60,
     max_item_ids : int = 3952,
-    max_sequence_length : int = 200
+    max_sequence_length : int = 200,
+    direction : str = 'left',
+    min_sequence_length : int = 5
 ):
     resulted_dataset = {
         'user_id' : [],
@@ -178,7 +205,10 @@ def cutting_augmentation(
         
         cut_sequences = cut_sequence(full_sequence,
                                      number_of_generation,
-                                     max_sequence_length)
+                                     max_sequence_length,
+                                     direction = direction,
+                                     min_sequence_length = min_sequence_length)
+                                     
         
         resulted_dataset['list_of_augmented'].append(cut_sequences)
 
@@ -284,14 +314,75 @@ def turn_result_into_dataframe(
     return pd.DataFrame(user_id_per_tokenized_sequences, columns=[user_column, item_column, timestamp_column, augmentation_column])
 
 
+def load_dataset_configs(
+    dataset_name : str
+): 
+    if dataset_name == 'ml-1m' :
+        return ml_1m_configs
+    elif dataset_name == 'amazon_beauty' :
+        return amazon_beauty_configs
+    elif dataset_name == 'amazon_sports' :
+        return amazon_sports_configs
+    else :
+        raise ValueError('Invalid dataset name')
+
+
 def __main__():
+    
+    ## Set the configurations
+    cut_direction = args.cut_direction
+    augmentation_column = args.aug_column_name
+    augmentation_prob = args.replace_probability
+    number_of_generation = args.number_of_generation
+    augmentation_type = args.augmentation_type
+    seed = args.seed
+    user_gpu = True
+    gpu_id = 0
+
+    setup_seed(seed)
+    
+    dataset_configs = load_dataset_configs(args.origianl_dataset)
+    
+    train_dataframe_path = dataset_configs['train_dataframe_path']
+    user_column = dataset_configs['user_column']
+    item_column = dataset_configs['item_column']
+    timestamp_column = dataset_configs['timestamp_column']
+    max_item_ids = dataset_configs['max_item_ids']
+    max_sequence_length = dataset_configs['max_sequence_length']
+    min_sequence_length = dataset_configs['min_sequence_length']
+    result_branch_path = dataset_configs['result_branch_path']
+    
+    if args.result_path != '' :
+        save_path_dir = args.result_path
+    else :
+        leaf_folder = f"{augmentation_type}"
+        if augmentation_type == 'random_replacing' :
+            leaf_folder = f"{leaf_folder}_{augmentation_prob}"
+        elif augmentation_type == 'cutting' :
+            leaf_folder = f"{leaf_folder}_{cut_direction}"
+        save_path_dir = result_branch_path + leaf_folder
+    
     train_dataframe = pd.read_csv(train_dataframe_path)
     full_sequence_dataset = SequenceDataset(train_dataframe, user_column, item_column, timestamp_column)
+    
+    print("Augmentation type : ", augmentation_type)
+    if augmentation_type == 'random_replacing' :
+        print("Replace probability : ", augmentation_prob)
+    elif augmentation_type == 'cutting' :
+        print("Cut direction : ", cut_direction)
+        print("Min sequence length : ", min_sequence_length)
+    elif augmentation_type == 'shuffle' :
+        pass
     
     if augmentation_type == 'random_replacing' :
         resulted_dataset = random_replacing(full_sequence_dataset, replace_prob=augmentation_prob, number_of_generation=number_of_generation, max_item_ids=max_item_ids)
     elif augmentation_type == 'cutting' :
-        resulted_dataset = cutting_augmentation(full_sequence_dataset, number_of_generation=number_of_generation, max_item_ids=max_item_ids, max_sequence_length=max_sequence_length)
+        resulted_dataset = cutting_augmentation(full_sequence_dataset,
+                                                number_of_generation=number_of_generation,
+                                                max_item_ids=max_item_ids,
+                                                max_sequence_length=max_sequence_length,
+                                                direction = cut_direction,
+                                                min_sequence_length = min_sequence_length)
     elif augmentation_type == 'shuffle' :
         resulted_dataset = shuggle_augmentation(full_sequence_dataset, number_of_generation=number_of_generation, max_item_ids=max_item_ids, max_sequence_length=max_sequence_length)
     else :

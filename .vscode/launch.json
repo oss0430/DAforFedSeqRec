@@ -1,9 +1,30 @@
 {
-    // IntelliSense를 사용하여 가능한 특성에 대해 알아보세요.
-    // 기존 특성에 대한 설명을 보려면 가리킵니다.
-    // 자세한 내용을 보려면 https://go.microsoft.com/fwlink/?linkid=830387을(를) 방문하세요.
     "version": "0.2.0",
     "configurations": [
+        {
+            "name" : "Python Data Augmentation Debugging",
+            "type" : "debugpy",
+            "request" : "launch",
+            "program" : "augmentation/seq_rec_augmentation.py",
+            "console" : "integratedTerminal",
+            "args" : [
+                "-o", "amazon_beauty", // original dataset name
+                "-r", "../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped/debug", // result dataset name (if not given, it will be original dataset name + augmentation type)
+                "-t", "cutting", // augmenation type
+                "-d", "right", // direction, only used at cutting augmentation
+                "-p", "0.1", // replace probabiliy, only used at replace augmentation
+            ]
+        },
+        {
+            "name" : "Python FederatedScope Main",
+            "type" : "debugpy",
+            "request" : "launch",
+            "program" : "main.py",
+            "console" : "integratedTerminal",
+            "args" : [
+                "--cfg", "run_configs/augmentation_test/ML-1M_cut_sequence/shadow-ml-1m_sasrec_augmentation_right_10_ce_lr_1e-4_debugging.yaml"
+            ]
+        },
         {
             "name": "Python: 현재 파일",
             "type": "debugpy",
@@ -12,8 +33,9 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args" : [
-                "--cfg", "run_configs/ML-1M/hidden_size_64_CE_lr1-e4_epoch_20_shadow_round_30K_debug.yaml"
+                "--cfg", "run_configs/augmentation_test/ML-1M_cut_sequence/shadow-ml-1m_sasrec_augmentation_right_10_ce_lr_1e-4_debugging.yaml"
             ]
         }
     ]
 }
+
