@@ -82,15 +82,15 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
         
         if self.max_sequence_length is not None :
             sequence_length = len(item_seq)
-            if sequence_length > self.max_sequence_length :
-                start_index = self.max_sequence_length - sequence_length
+            if  sequence_length > self.max_sequence_length :
+                start_index = sequence_length - self.max_sequence_length
                 ## Critical Error here and fixed it.
                 item_seq = item_seq[start_index:]
                 item_seq_len = np.array([self.max_sequence_length])
             else :
                 item_seq = np.pad(
                     item_seq,
-                    (0, self.max_sequence_length - len(item_seq)),
+                    (0, self.max_sequence_length - sequence_length),
                     constant_values = self.padding_value
                 )
         user_id = torch.tensor(user_id, dtype=torch.int64)
