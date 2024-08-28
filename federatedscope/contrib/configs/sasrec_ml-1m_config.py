@@ -25,6 +25,7 @@ def extend_cfg_for_sasrec_ml1m(cfg) :
     cfg.model.initializer_range = 0.02
     cfg.model.use_position = True
     cfg.model.device = 'cuda:0'
+    cfg.model.pretrained_model_path = ""
     
     cfg.data = CN()
     cfg.data.root = "../../../../data1/donghoon/FederatedScopeData/ml-1m/"

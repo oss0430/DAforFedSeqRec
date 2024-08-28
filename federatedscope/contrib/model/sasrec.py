@@ -1,3 +1,4 @@
+import logging
 import torch
 import torch.nn as nn
 import copy
@@ -6,6 +7,8 @@ import torch.nn.functional as fn
 
 from federatedscope.register import register_model
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class SequentialRecommender(nn.Module):
     """
@@ -479,6 +482,14 @@ def call_sasrec(model_config, local_data) :
             model_config.use_position,
             model_config.device
         )
+        
+        ## load pre-trained model
+        if model_config.pretrained_model_path != "":
+            model_dict = torch.load(model_config.pretrained_model_path)
+            saved_round = model_dict['cur_round']
+            model_param = model_dict['model']
+            model.load_state_dict(model_param)
+            logger.info(f"Load pre-trained model from {model_config.pretrained_model_path}")
         
         return model
 
