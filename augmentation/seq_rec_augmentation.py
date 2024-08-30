@@ -14,12 +14,21 @@ import numpy as np
 import pandas as pd
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-o', '--origianl_dataset', type=str, default='ml-1m', choices=['ml-1m', 'amazon_beauty', 'amazon_sports'])
+parser.add_argument('-o', '--origianl_dataset', type=str, default='ml-1m', choices=['ml-1m', 
+                                                                                    'amazon_beauty',
+                                                                                    'amazon_sports'])
 parser.add_argument('-r', '--result_path', type=str, default='')
 parser.add_argument('-c', '--aug_column_name', type=str, default='augmentation_idx:token')
-parser.add_argument('-t', '--augmentation_type', type=str, default='random_replacing', choices=['random_replacing', 'cutting', 'shuffle'])
+parser.add_argument('-t', '--augmentation_type', type=str, default='random_replacing', choices=['random_replacing', 
+                                                                                                'cutting', 
+                                                                                                'shuffle', 
+                                                                                                'random_pushing', 
+                                                                                                'self_sampled_pushing'])
 parser.add_argument('-p', '--replace_probability', type=float, default=0.1)
-parser.add_argument('-d', '--cut_direction', type=str, default='left', choices=['right', 'left'])
+parser.add_argument('-d', '--direction', type=str, default='left', choices=['right',
+                                                                            'left'])
+parser.add_argument('-pls', '--push_length_range_start', type = int, default = 1)
+parser.add_argument('-ple', '--push_length_range_end', type = int, default = 4)
 parser.add_argument('-n', '--number_of_generation', type=int, default=60)
 parser.add_argument('-s', '--seed', type=int, default=42)
 
@@ -97,164 +106,232 @@ class SequenceDataset(Dataset) :
             'full_sequence' : full_sequence
         }
             
-        
-        
-def replace_sequence(
-    item_sequence : torch.Tensor,
-    max_item_ids : int,
-    probablity : float
-) -> torch.Tensor:
-    ## Replace the item_sequence with random items
-    mask = torch.rand(item_sequence.size()) < probablity
-    random_values = torch.randint(1, max_item_ids+1, item_sequence.size())
-    
-    return torch.where(mask, random_values, item_sequence)
 
 
-def random_replacing(
-    full_sequence_dataset : SequenceDataset,
-    replace_prob : float = 0.1,
-    number_of_generation : int = 60,
-    max_item_ids : int = 3952
-) :
-    resulted_dataset = {
-        'user_id' : [],
-        'original' : [],
-        'list_of_augmented' :[]
-    }
+class AugmentationGenerator :
     
-    ## Generate a augmented training sets
-    full_sequence_loader = DataLoader(full_sequence_dataset, batch_size=1, shuffle=False)
-    for data_batch in tqdm(full_sequence_loader, desc='Generating augmented dataset') :
-        user_id = data_batch['user_id']
-        full_sequence = data_batch['full_sequence'].squeeze(0)
+    def __init__(
+        self,
+        full_sequence_dataset : SequenceDataset,
+        number_of_generation : int,
+        max_item_ids : int,
+        max_sequence_length : int,
+        min_sequence_length : int,
+    ) :
+        self.full_sequence_dataset = full_sequence_dataset
+        self.number_of_generation = number_of_generation
+        self.max_item_ids = max_item_ids
+        self.max_sequence_length = max_sequence_length
+        self.min_sequence_length = min_sequence_length
+    
+    
+    def generate_for_sequence(self, sequence : torch.Tensor) :
+        NotImplementedError('This method should be implemented in the subclass')
+
+    
+    def generate(self) :
+        resulted_dataset = {
+            'user_id' : [],
+            'original' : [],
+            'list_of_augmented' :[]
+        }
+        full_sequence_loader = DataLoader(self.full_sequence_dataset, batch_size=1, shuffle=False)
+        ## Generate a augmented training sets
+        for data_batch in tqdm(full_sequence_loader, desc='Generating augmented dataset') :
+            user_id = data_batch['user_id']
+            full_sequence = data_batch['full_sequence'].squeeze(0)
+
+            resulted_dataset['original'].append(full_sequence)
+            resulted_dataset['user_id'].append(user_id)
+
+            augmented_sequences = self.generate_for_sequence(full_sequence)
+            resulted_dataset['list_of_augmented'].append(augmented_sequences)
         
-        resulted_dataset['original'].append(full_sequence)
-        resulted_dataset['user_id'].append(user_id)
+        return resulted_dataset
+
+    
+class RandomReplacingAugmentation(AugmentationGenerator) :
         
+    def __init__(
+        self,
+        full_sequence_dataset : SequenceDataset,
+        number_of_generation : int,
+        max_item_ids : int,
+        max_sequence_length : int,
+        min_sequence_length : int,
+        replace_prob : float
+    ) :
+        self.replace_prob = replace_prob
+        super(RandomReplacingAugmentation, self).__init__(full_sequence_dataset, number_of_generation, max_item_ids, max_sequence_length, min_sequence_length)
+    
+    
+    def replace_sequence(
+        self,
+        item_sequence : torch.Tensor,
+        max_item_ids : int,
+        probablity : float
+    ) -> torch.Tensor:
+        ## Replace the item_sequence with random items
+        mask = torch.rand(item_sequence.size()) < probablity
+        random_values = torch.randint(1, max_item_ids+1, item_sequence.size())
+
+        return torch.where(mask, random_values, item_sequence)
+    
+    
+    def generate_for_sequence(self, sequence) :
         replaced_sequences = []
-        for i in range(number_of_generation) :
-            replaced_sequence = replace_sequence(full_sequence, max_item_ids, replace_prob)
+        for i in range(self.number_of_generation) :
+            replaced_sequence = self.replace_sequence(sequence, self.max_item_ids, self.replace_prob)
             replaced_sequences.append(replaced_sequence)
         
-        resulted_dataset['list_of_augmented'].append(replaced_sequences)
-
-    return resulted_dataset
-
-
-def cut_sequence(
-    item_sequence : torch.Tensor,
-    number_of_generation : int,
-    max_sequence_length : int,
-    direction : str = 'right',
-    min_sequence_length : int = 5
-) -> List[torch.Tensor]:
-    ## Cut the sequence
-    sequence_length = len(item_sequence)
-    if sequence_length >= max_sequence_length and direction == 'left' :
-        cut_range = list(range(sequence_length - max_sequence_length, sequence_length))
-    else :
-        cut_range = list(range(sequence_length))
+        return replaced_sequences
     
-    cut_sequences = []
+        
+class CuttingAugmentation(AugmentationGenerator) :
+        
+    def __init__(
+        self,
+        full_sequence_dataset : SequenceDataset,
+        number_of_generation : int,
+        max_item_ids : int,
+        max_sequence_length : int,
+        min_sequence_length : int,
+        direction : str
+    ) :
+        self.direction = direction
+        
+        super(CuttingAugmentation, self).__init__(full_sequence_dataset, number_of_generation, max_item_ids, max_sequence_length, min_sequence_length)
     
-    i= 0
-    if direction == 'right' :
-        while i < number_of_generation :
-            if len(cut_range) <= min_sequence_length :
-                break
-            cut_end = cut_range.pop()
-            augmented_seq = item_sequence[:cut_end]
-            cut_sequences.append(augmented_seq)
-            i = i + 1
-    else :  
-        cut_range.pop(0) ## remove the first element
-        while i < number_of_generation :
-            if len(cut_range) <= min_sequence_length :
-                break
-            cut_start = cut_range.pop(0)
-            augmented_seq = item_sequence[cut_start:]
-            cut_sequences.append(augmented_seq)
-            i = i + 1
-
-    return cut_sequences
-
-
-def cutting_augmentation(
-    full_sequence_dataset : SequenceDataset,
-    number_of_generation : int = 60,
-    max_item_ids : int = 3952,
-    max_sequence_length : int = 200,
-    direction : str = 'left',
-    min_sequence_length : int = 5
-):
-    resulted_dataset = {
-        'user_id' : [],
-        'original' : [],
-        'list_of_augmented' :[]
-    }
     
-    ## Generate a augmented training sets
-    full_sequence_loader = DataLoader(full_sequence_dataset, batch_size=1, shuffle=False)
-    for data_batch in tqdm(full_sequence_loader, desc='Generating augmented dataset') :
-        user_id = data_batch['user_id']
-        full_sequence = data_batch['full_sequence'].squeeze(0)
-        
-        resulted_dataset['original'].append(full_sequence)
-        resulted_dataset['user_id'].append(user_id)
-        
-        cut_sequences = cut_sequence(full_sequence,
-                                     number_of_generation,
-                                     max_sequence_length,
-                                     direction = direction,
-                                     min_sequence_length = min_sequence_length)
-                                     
-        
-        resulted_dataset['list_of_augmented'].append(cut_sequences)
+    def generate_for_sequence(
+        self,
+        item_sequence : torch.Tensor
+    ) -> List[torch.Tensor]:
+        ## Cut the sequence
+        sequence_length = len(item_sequence)
+        if sequence_length >= self.max_sequence_length and self.direction == 'left' :
+            cut_range = list(range(sequence_length - self.max_sequence_length, sequence_length))
+        else :
+            cut_range = list(range(sequence_length))
 
-    return resulted_dataset
+        cut_sequences = []
+
+        i= 0
+        if self.direction == 'right' :
+            while i < self.number_of_generation :
+                if len(cut_range) <= self.min_sequence_length :
+                    break
+                cut_end = cut_range.pop()
+                augmented_seq = item_sequence[:cut_end]
+                cut_sequences.append(augmented_seq)
+                i = i + 1
+        else :  
+            cut_range.pop(0) ## remove the first element
+            while i < self.number_of_generation :
+                if len(cut_range) < self.min_sequence_length :
+                    break
+                cut_start = cut_range.pop(0)
+                augmented_seq = item_sequence[cut_start:]
+                cut_sequences.append(augmented_seq)
+                i = i + 1
+
+        return cut_sequences
 
 
-def shuffle_sequence(
-    item_sequence : torch.Tensor,
-    number_of_generation : int
-) -> List[torch.Tensor]:
-    ## Shuffle the sequence
-    shuffled_sequences = []
+class ShuffleAugmentation(AugmentationGenerator) :
+
+
+    def generate_for_sequence(
+        self,
+        item_sequence : torch.Tensor
+    ) -> List[torch.Tensor]:
+        ## Shuffle the sequence
+        shuffled_sequences = []
+
+        for i in range(self.number_of_generation) :
+            shuffled_sequence = item_sequence[torch.randperm(item_sequence.size(0))]
+            shuffled_sequences.append(shuffled_sequence)
+
+        return shuffled_sequences
+
+
+class RandomSequencePushing(AugmentationGenerator) :
+        
+    def __init__(
+        self,
+        full_sequence_dataset : SequenceDataset,
+        number_of_generation : int,
+        max_item_ids : int,
+        max_sequence_length : int,
+        min_sequence_length : int,
+        push_direction : str,
+        push_length_range : List[int]
+    ) :
+        self.push_direction = push_direction
+        self.push_length_range = push_length_range
+        super(RandomSequencePushing, self).__init__(full_sequence_dataset, number_of_generation, max_item_ids, max_sequence_length, min_sequence_length)
     
-    for i in range(number_of_generation) :
-        shuffled_sequence = item_sequence[torch.randperm(item_sequence.size(0))]
-        shuffled_sequences.append(shuffled_sequence)
     
-    return shuffled_sequences
-
-
-def shuggle_augmentation(
-    full_sequence_dataset : SequenceDataset,
-    number_of_generation : int = 60,
-    max_item_ids : int = 3952,
-    max_sequence_length : int = 200
-) :
-    resulted_dataset = {
-        'user_id' : [],
-        'original' : [],
-        'list_of_augmented' :[]
-    }
+    def generate_pushing_sequence(
+        self,
+        length : int,
+        item_sequence : torch.Tensor
+    ) -> torch.Tensor:
+        return torch.randint(1, self.max_item_ids+1, (length,))
     
-    ## Generate a augmented training sets
-    full_sequence_loader = DataLoader(full_sequence_dataset, batch_size=1, shuffle=False)
-    for data_batch in tqdm(full_sequence_loader, desc='Generating augmented dataset') :
-        user_id = data_batch['user_id']
-        full_sequence = data_batch['full_sequence'].squeeze(0)
+    
+    def generate_for_sequence(
+        self,
+        item_sequence : torch.Tensor
+    ) -> List[torch.Tensor]:
+        ## Push the sequence
+        sequence_length = len(item_sequence)
+        if sequence_length >= self.max_sequence_length :
+            return [] ## if the sequence is already at the maximum length, return empty list
         
-        resulted_dataset['original'].append(full_sequence)
-        resulted_dataset['user_id'].append(user_id)
-        
-        shuffled_sequences = shuffle_sequence(full_sequence, number_of_generation)
-        
-        resulted_dataset['list_of_augmented'].append(shuffled_sequences)
+        ## cut the push_length_range if neccessary
+        minimum_result_length = sequence_length + self.push_length_range[0]
+        maximum_result_length = sequence_length + self.push_length_range[1]
+    
+        if minimum_result_length > self.max_sequence_length :
+            push_length_range_start = self.min_sequence_length - sequence_length
+            push_length_range_end = self.min_sequence_length - sequence_length
+        elif maximum_result_length > self.max_sequence_length :
+            push_length_range_start = self.push_length_range[0]
+            push_length_range_end = self.max_sequence_length - sequence_length
+        else :
+            push_length_range_start = self.push_length_range[0]
+            push_length_range_end = self.push_length_range[1]
 
-    return resulted_dataset
+        push_sequences = []
+
+        for i in range(self.number_of_generation) :
+            push_length = random.randint(push_length_range_start, push_length_range_end + 1)
+            pushing_sequence = self.generate_pushing_sequence(push_length, item_sequence)
+            if self.push_direction == 'right' :
+                push_sequence = torch.cat([item_sequence, pushing_sequence])
+            else :
+                push_sequence = torch.cat([pushing_sequence, item_sequence])
+
+            push_sequences.append(push_sequence)
+
+        return push_sequences
+
+
+class SelfSampledSequencePushing(RandomSequencePushing) :
+    
+    def generate_pushing_sequence(
+        self,
+        length : int,
+        item_sequence : torch.Tensor
+    ) -> torch.Tensor:
+        ## sample the item from the given sequence to make new sequence
+       
+        unique_items = item_sequence.unique()
+        pushing_sequence_where = torch.randint(0, unique_items.size(0), (length,))
+        pushing_sequence = unique_items[pushing_sequence_where]
+        
+        return pushing_sequence
 
 
 def sequence_to_tokens(
@@ -330,11 +407,12 @@ def load_dataset_configs(
 def __main__():
     
     ## Set the configurations
-    cut_direction = args.cut_direction
+    direction = args.direction
     augmentation_column = args.aug_column_name
     augmentation_prob = args.replace_probability
     number_of_generation = args.number_of_generation
     augmentation_type = args.augmentation_type
+    push_length_range = [args.push_length_range_start, args.push_length_range_end]
     seed = args.seed
     user_gpu = True
     gpu_id = 0
@@ -359,7 +437,9 @@ def __main__():
         if augmentation_type == 'random_replacing' :
             leaf_folder = f"{leaf_folder}_{augmentation_prob}"
         elif augmentation_type == 'cutting' :
-            leaf_folder = f"{leaf_folder}_{cut_direction}"
+            leaf_folder = f"{leaf_folder}_{direction}"
+        elif augmentation_type == 'random_pushing' or augmentation_type == 'self_sampled_pushing' :
+            leaf_folder = f"{leaf_folder}_{direction}_{push_length_range[0]}_{push_length_range[1]}"
         save_path_dir = result_branch_path + leaf_folder
     
     train_dataframe = pd.read_csv(train_dataframe_path)
@@ -369,24 +449,57 @@ def __main__():
     if augmentation_type == 'random_replacing' :
         print("Replace probability : ", augmentation_prob)
     elif augmentation_type == 'cutting' :
-        print("Cut direction : ", cut_direction)
+        print("Cut direction : ", direction)
         print("Min sequence length : ", min_sequence_length)
     elif augmentation_type == 'shuffle' :
         pass
+    elif augmentation_type == 'random_pushing' :
+        print("Push direction : ", direction)
+        print("Push length range : ", push_length_range)
+    elif augmentation_type == 'self_sampled_pushing' :
+        print("Push direction : ", direction)
+        print("Push length range : ", push_length_range)
     
     if augmentation_type == 'random_replacing' :
-        resulted_dataset = random_replacing(full_sequence_dataset, replace_prob=augmentation_prob, number_of_generation=number_of_generation, max_item_ids=max_item_ids)
+        augmentation_generator = RandomReplacingAugmentation(full_sequence_dataset,
+                                                             number_of_generation,
+                                                             max_item_ids,
+                                                             max_sequence_length,
+                                                             min_sequence_length,
+                                                             augmentation_prob)
     elif augmentation_type == 'cutting' :
-        resulted_dataset = cutting_augmentation(full_sequence_dataset,
-                                                number_of_generation=number_of_generation,
-                                                max_item_ids=max_item_ids,
-                                                max_sequence_length=max_sequence_length,
-                                                direction = cut_direction,
-                                                min_sequence_length = min_sequence_length)
+        augmentation_generator = CuttingAugmentation(full_sequence_dataset,
+                                                     number_of_generation,
+                                                     max_item_ids,
+                                                     max_sequence_length,
+                                                     min_sequence_length,
+                                                     direction)
     elif augmentation_type == 'shuffle' :
-        resulted_dataset = shuggle_augmentation(full_sequence_dataset, number_of_generation=number_of_generation, max_item_ids=max_item_ids, max_sequence_length=max_sequence_length)
+        augmentation_generator = ShuffleAugmentation(full_sequence_dataset,
+                                                     number_of_generation,
+                                                     max_item_ids,
+                                                     max_sequence_length,
+                                                     min_sequence_length)
+    elif augmentation_type == 'random_pushing' :
+        augmentation_generator = RandomSequencePushing(full_sequence_dataset,
+                                                       number_of_generation,
+                                                       max_item_ids,
+                                                       max_sequence_length,
+                                                       min_sequence_length,
+                                                       direction,
+                                                       push_length_range)
+    elif augmentation_type == 'self_sampled_pushing' :
+        augmentation_generator = SelfSampledSequencePushing(full_sequence_dataset,
+                                                            number_of_generation,
+                                                            max_item_ids,
+                                                            max_sequence_length,
+                                                            min_sequence_length,
+                                                            direction,
+                                                            push_length_range)
     else :
         raise ValueError('Invalid augmentation type')
+    
+    resulted_dataset = augmentation_generator.generate()
     
     resulted_dataframe = turn_result_into_dataframe(resulted_dataset, user_column, item_column, timestamp_column, augmentation_column)
     print("saving to : ", save_path_dir)
