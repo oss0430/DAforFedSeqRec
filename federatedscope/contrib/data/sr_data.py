@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-class SequentialRecommendationDataset(torch.utils.data.Dataset):
+
+class SequentialRecommendationTrainset(torch.utils.data.Dataset):
     
     def __init__(
         self,
@@ -27,7 +28,7 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
         item_num : int = None,
         padding_value : int = 0
     ) :
-        super(SequentialRecommendationDataset, self).__init__()
+        super(SequentialRecommendationTrainset, self).__init__()
         self.df = df
         self.user_column = user_column
         self.item_column = item_column
@@ -37,16 +38,144 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
         self.max_sequence_length = max_sequence_length
         self.padding_value = padding_value
         
-        if user_num is None :
+        if user_num == None :
             self.user_num = len(df[user_column].unique())
         else :
             self.user_num = user_num
         
-        if item_num is None :
+        if item_num == None :
+            self.item_num = max(df[item_column].unique())
+        else :
+            self.item_num = item_num
+            
+        self._preprocess_sequence()
+            
+        
+    
+    def _preprocess_sequence(self):
+        ## cut the sequence from right each item.
+        last_user_id = None
+        
+        user_id_list, item_seq_index, target_index, item_seq_length = [], [], [], []
+        
+        user_hashing = {} # for creating sub-dataset via user
+        
+        seq_start = 0
+        instance_count = 0
+        for i, user_id in enumerate(self.df[self.user_column].values):
+            if last_user_id != user_id:
+                if last_user_id :
+                    ## keep track of instance count at with hash
+                    user_hashing[last_user_id]["end"] = instance_count
+                last_user_id = user_id
+                seq_start = i
+                user_hashing[user_id] = {"start" : instance_count, "end" : None}
+                last_user_instance_count = 0
+            else :
+                if i - seq_start > self.max_sequence_length :
+                    seq_start += 1
+                user_id_list.append(user_id)
+                item_seq_index.append(range(seq_start,i)) 
+                target_index.append(i)
+                item_seq_length.append(i - seq_start)
+                instance_count += 1
+        ## update user hashing for the last user
+        user_hashing[last_user_id]["end"] = instance_count
+        
+        self.user_id_list = user_id_list
+        self.item_seq_index = item_seq_index
+        self.target_index = target_index
+        self.item_seq_length = item_seq_length
+        self.user_hashing = user_hashing
+
+        
+    def __len__(self) :
+        return len(self.user_id_list)
+    
+    
+    def __getitem__(self, idx : int) -> Tuple[torch.Tensor,torch.Tensor,torch.Tensor] :
+        
+        user_id = self.user_id_list[idx]
+        item_seq_index = self.item_seq_index[idx]
+        target_index = self.target_index[idx]
+        item_seq_length = self.item_seq_length[idx]
+        
+        item_seq = self.df[self.item_column].values[list(item_seq_index)]
+        
+        if self.max_sequence_length is not None :
+            sequence_length = len(item_seq)
+            if  sequence_length > self.max_sequence_length :
+                start_index = sequence_length - self.max_sequence_length
+                item_seq = item_seq[start_index:]
+                item_seq_length = self.max_sequence_length
+            else :
+                item_seq = np.pad(
+                    item_seq,
+                    (0, self.max_sequence_length - sequence_length),
+                    constant_values = self.padding_value
+                )
+        
+        target_item = self.df[self.item_column].values[target_index]
+        
+        user_id = torch.tensor(user_id, dtype=torch.int64)
+        item_seq = torch.tensor(item_seq, dtype=torch.int64)
+        item_seq_length = torch.tensor(item_seq_length, dtype=torch.int64)
+        target_item = torch.tensor(target_item, dtype=torch.int64)
+        
+        return {   
+            'user_id' : user_id,
+            'item_seq' : item_seq,
+            'item_seq_len' : item_seq_length,
+            'target_item' : target_item
+        } 
+    
+    def _from_user_idx_get_user_subset_range(self, idx):
+        ## when given the index number for user_id,
+        ## return the range of data index for the user
+        user_id = self.df[self.user_column].unique()[idx]
+        start_end_dict = self.user_hashing[user_id]
+        
+        return range(start_end_dict["start"], start_end_dict["end"])
+    
+
+class SequentialRecommendationValidset(torch.utils.data.Dataset):
+    
+    def __init__(
+        self,
+        df : pd.DataFrame,
+        user_column : str,
+        item_column : str,
+        interaction_column : str,
+        timestamp_column : str,
+        min_sequence_length : int = None, 
+        max_sequence_length : int = None,
+        user_num : int = None,
+        item_num : int = None,
+        padding_value : int = 0
+    ) :
+        super(SequentialRecommendationValidset, self).__init__()
+        self.df = df
+        self.user_column = user_column
+        self.item_column = item_column
+        self.interaction_column = interaction_column
+        self.timestamp_column = timestamp_column
+        self.min_sequence_length = min_sequence_length
+        self.max_sequence_length = max_sequence_length
+        self.padding_value = padding_value
+        
+        if user_num == None :
+            self.user_num = len(df[user_column].unique())
+        else :
+            self.user_num = user_num
+        
+        if item_num == None :
             self.item_num = max(df[item_column].unique())
         else :
             self.item_num = item_num
     
+    
+    
+                
     
     def __len__(self) :
         return len(self.df[self.user_column].unique())
@@ -105,9 +234,86 @@ class SequentialRecommendationDataset(torch.utils.data.Dataset):
                 'item_seq_len' : item_seq_len,
                 'target_item' : target_item
         }
+
+
+class SequentialRecommendationTrainsetWithAugmentation(SequentialRecommendationTrainset):
+    
+    def __init__(
+        self,
+        df_with_augmentation : pd.DataFrame,
+        user_column : str,
+        item_column : str,
+        interaction_column : str,
+        timestamp_column : str,
+        augmentation_column : str,
+        min_sequence_length : int = None,
+        max_sequence_length : int = None,
+        user_num : int = None,
+        item_num : int = None,
+        padding_value : int = 0
+    ) :
+        self.augmentation_column = augmentation_column
+        self.number_of_augmentation = len(df_with_augmentation[self.augmentation_column].unique())
+        super(SequentialRecommendationTrainsetWithAugmentation, self).__init__(
+            df_with_augmentation,
+            user_column,
+            item_column,
+            interaction_column,
+            timestamp_column,
+            min_sequence_length,
+            max_sequence_length,
+            user_num,
+            item_num,
+            padding_value
+        )
+        
+        
+    def _preprocess_sequence(self):
+        ## only difference is hashing
+        
+        last_user_id = None
+        last_augmentation_idx = None
+        user_id_list, item_seq_index, target_index, item_seq_length = [], [], [], []
+        
+        user_hashing = {} # for creating sub-dataset via user
+        
+        seq_start = 0
+        instance_count = 0
+        ## we must account the augmentation index
+        user_and_augmentation_zip = zip(self.df[self.user_column].values, 
+                                        self.df[self.augmentation_column].values)
+        for i, (user_id, augmentation_idx) in enumerate(user_and_augmentation_zip):
+            if last_user_id != user_id:
+                ## updating hashing occurs only when user changes
+                if last_user_id :
+                    user_hashing[last_user_id]["end"] = instance_count
+                last_user_id = user_id
+                user_hashing[user_id] = {"start" : instance_count, "end" : None}
+            if last_augmentation_idx != augmentation_idx:
+                ## new sequence begins when augmentation_idx changes
+                seq_start = i
+                last_augmentation_idx = augmentation_idx    
+            else :
+                if i - seq_start > self.max_sequence_length :
+                    seq_start += 1
+                user_id_list.append(user_id)
+                item_seq_index.append(range(seq_start,i)) 
+                target_index.append(i)
+                item_seq_length.append(i - seq_start)
+                instance_count += 1
+        
+        ## update user hashing for the last user
+        user_hashing[last_user_id]["end"] = instance_count
+        
+        self.user_id_list = user_id_list
+        self.item_seq_index = item_seq_index
+        self.target_index = target_index
+        self.item_seq_length = item_seq_length
+        self.user_hashing = user_hashing
+    
+
  
- 
-class SequentialRecommendationDatasetWithAugmentation(SequentialRecommendationDataset):
+class SequentialRecommendationDatasetWithAugmentation(SequentialRecommendationValidset):
      
     def __init__(
         self,
@@ -355,12 +561,10 @@ def make_sr_dataset(
     max_sequence_length : int = None,
     user_num : int = None,
     item_num : int = None,
-    padding_value : int = 0,
-    itemdrop_method : str = "",
-    offset : int = 0,
-    dropcount : int = 0,
-    dropping_user_id : List[int] = None
-) -> Tuple[SequentialRecommendationDataset, SequentialRecommendationDataset, SequentialRecommendationDataset] :
+    padding_value : int = 0
+) -> Tuple[SequentialRecommendationTrainset,
+           SequentialRecommendationValidset,
+           SequentialRecommendationValidset] :
     
     if use_augmentation :
         logger.warning("SRData with Augmentation is only availiable for reading")
@@ -378,7 +582,7 @@ def make_sr_dataset(
         user_num = len(test_df[user_column].unique())
         item_num = max(test_df[item_column].unique())
         
-        trainset = SequentialRecommendationDatasetWithAugmentation(
+        trainset = SequentialRecommendationTrainsetWithAugmentation(
             train_with_augmentation_df,
             user_column,
             item_column,
@@ -402,42 +606,29 @@ def make_sr_dataset(
             check_user_num_consistancy(user_column, train_df, valid_df, test_df)
             
         except :
+            ## Read the original dataframe and split it
+            logging.info("SRData : Partitioned Dataframe not found, Splitting Dataframe")
             # Sort Dataframe by user and timestamp
             df = pd.read_csv(df_path, header = 0, sep = '\t')
             df = df.sort_values([user_column, timestamp_column])
-
-            ## Cut by min_sequence_length
-            ##if min_sequence_length :
-            ##    df = cut_by_in_sequence_length(df, user_column, min_sequence_length)
-            
-            ## Try to drop if drop method exist
-            if itemdrop_method != "":
-                dropped_df = make_item_dropped_df(
-                    df = df,
-                    user_column = user_column,
-                    itemdrop_method = itemdrop_method,
-                    offset = offset,
-                    dropcount = dropcount,
-                    dropping_user_id = dropping_user_id
-                )
-                df = dropped_df
                 
             # Split Dataframe in to train, valid, test according to leave one out strategy
             train_df, valid_df, test_df = split_dataframe_into_train_valid_test(df, user_column)
             
-        if save_partitioned_df_path :
-            if not os.path.exists(save_partitioned_df_path):
-                os.makedirs(save_partitioned_df_path)
-            
-            train_df.to_csv(os.path.join(save_partitioned_df_path, 'train.csv'), index = False)
-            valid_df.to_csv(os.path.join(save_partitioned_df_path, 'valid.csv'), index = False)
-            test_df.to_csv(os.path.join(save_partitioned_df_path, 'test.csv'), index = False)
+            if save_partitioned_df_path :
+                logging.info("SRData : Saving Partitioned Dataframe")
+                if not os.path.exists(save_partitioned_df_path):
+                    os.makedirs(save_partitioned_df_path)
+                
+                train_df.to_csv(os.path.join(save_partitioned_df_path, 'train.csv'), index = False)
+                valid_df.to_csv(os.path.join(save_partitioned_df_path, 'valid.csv'), index = False)
+                test_df.to_csv(os.path.join(save_partitioned_df_path, 'test.csv'), index = False)
         
         ## Fix user_num and item_num according to test_df
         user_num = len(test_df[user_column].unique())
         item_num = max(test_df[item_column].unique())
             
-        trainset = SequentialRecommendationDataset(
+        trainset = SequentialRecommendationTrainset(
             train_df,
             user_column,
             item_column,
@@ -450,7 +641,7 @@ def make_sr_dataset(
             padding_value
         )
         
-    validset = SequentialRecommendationDataset(
+    validset = SequentialRecommendationValidset(
         valid_df,
         user_column,
         item_column,
@@ -463,7 +654,7 @@ def make_sr_dataset(
         padding_value
     )
     
-    testset = SequentialRecommendationDataset(
+    testset = SequentialRecommendationValidset(
         test_df,
         user_column,
         item_column,
@@ -499,11 +690,7 @@ def load_sr_data(
         config.data.max_sequence_length,
         config.data.user_num,
         config.data.item_num,
-        config.data.padding_value,
-        #config.srtest.itemdrop_method or None,
-        #config.srtest.offset or None,
-        #config.srtest.dropcount or None,
-        #config.srtest.dropping_user_id or None
+        config.data.padding_value
     )
     
     translator = BaseDataTranslator(config, client_cfgs)
