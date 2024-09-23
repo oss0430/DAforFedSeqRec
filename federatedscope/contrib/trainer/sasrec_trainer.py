@@ -397,14 +397,104 @@ class SASRecTrainer(GeneralTorchTrainer):
         ctx.batch_size = CtxVar(len(target_item), LIFECYCLE.BATCH)
         
         
+
+class SASRecTrainerWithValAtTrain(SASRecTrainer):
     
+
+    def _hook_on_fit_start_init(self, ctx):
+        """
+        Note:
+          The modified attributes and according operations are shown below:
+            ==================================  ===========================
+            Attribute                           Operation
+            ==================================  ===========================
+            ``ctx.model``                       Move to ``ctx.device``
+            ``ctx.optimizer``                   Initialize by ``ctx.cfg``
+            ``ctx.scheduler``                   Initialize by ``ctx.cfg``
+            ``ctx.loss_batch_total``            Initialize to 0
+            ``ctx.loss_regular_total``          Initialize to 0
+            ``ctx.num_samples``                 Initialize to 0
+            ``ctx.ys_true``                     Initialize to ``[]``
+            ``ctx.ys_prob``                     Initialize to ``[]``
+            ==================================  ===========================
+        """
+        # prepare model and optimizer
+        ctx.model.to(ctx.device)
+
+        if ctx.cur_mode in [MODE.TRAIN, MODE.FINETUNE]:
+            # Initialize optimizer here to avoid the reuse of optimizers
+            # across different routines
+            ctx.optimizer = get_optimizer(ctx.model,
+                                          **ctx.cfg[ctx.cur_mode].optimizer)
+            ctx.scheduler = get_scheduler(ctx.optimizer,
+                                          **ctx.cfg[ctx.cur_mode].scheduler)
+
+            ctx.loss_val = CtxVar(0., LIFECYCLE.ROUTINE)
+            ctx.num_samples_val = CtxVar(0, LIFECYCLE.ROUTINE)
+            ctx.val_true = CtxVar([], LIFECYCLE.ROUTINE)
+            ctx.val_prob = CtxVar([], LIFECYCLE.ROUTINE)
+            ctx.val_pred = CtxVar([], LIFECYCLE.ROUTINE)
+            
+        # prepare statistics
+        ctx.loss_batch_total = CtxVar(0., LIFECYCLE.ROUTINE)
+        ctx.loss_regular_total = CtxVar(0., LIFECYCLE.ROUTINE)
+        ctx.num_samples = CtxVar(0, LIFECYCLE.ROUTINE)
+        ctx.ys_true = CtxVar([], LIFECYCLE.ROUTINE)
+        ctx.ys_prob = CtxVar([], LIFECYCLE.ROUTINE)
+        ctx.ys_pred = CtxVar([], LIFECYCLE.ROUTINE)
+
+    def _hook_on_fit_end(self, ctx):
+        """
+        Evaluate metrics.
+        We don't use ys_prob but ys_pred since it is not classification task
+        
+        Also We Calculate Val Loss for report
+        
+        """
+        ctx.ys_true = CtxVar(np.concatenate(ctx.ys_true), LIFECYCLE.ROUTINE)
+        ctx.ys_pred = CtxVar(np.concatenate(ctx.ys_pred), LIFECYCLE.ROUTINE)
+        
+        results = ctx.monitor.eval(ctx)
+        
+        if ctx.cur_mode in [MODE.TRAIN, MODE.FINETUNE]:
+            with torch.no_grad():
+                ctx.model.eval()
+                for val_batch in ctx.val_loader:
+                    val_item_seq = val_batch["item_seq"]
+                    val_item_seq_len = val_batch["item_seq_len"]
+                    val_target_item = val_batch["target_item"]
+                    
+                    val_item_seq, val_item_seq_len, val_target_item = val_item_seq.to(ctx.device), val_item_seq_len.to(ctx.device), val_target_item.to(ctx.device)
+
+                    outputs = ctx.model(val_item_seq, val_item_seq_len)
+                    #pred = ctx.model.full_sort_predict(item_seq, item_seq_len)
+                    
+                    test_item_emb = ctx.model.item_embedding.weight
+                    logits = torch.matmul(outputs, test_item_emb.transpose(0,1))
+
+                    ctx.loss_val += ctx.criterion(logits, val_target_item).item() * len(val_target_item)
+                    ctx.val_true.append(val_target_item.detach().cpu().numpy())
+                    ctx.val_pred.append(logits.detach().cpu().numpy())
+                    ctx.num_samples_val += len(val_target_item)
+                    
+                results["val_loss"] = ctx.loss_val
+                results["val_avg_loss"] = ctx.loss_val / ctx.num_samples_val
+            
+        setattr(ctx, 'eval_metrics', results)
+        
+        
+   
 def call_sasrec_trainer(trainer_type):
     if trainer_type == "sasrec_trainer":
         return SASRecTrainer
-    
+
+def call_sasrec_trainer_with_val_at_train(trainer_type):
+    if trainer_type == "sasrec_trainer_with_val_at_train":
+        return SASRecTrainerWithValAtTrain
+
 
 register_trainer('sasrec_trainer', call_sasrec_trainer)
-
+register_trainer('sasrec_trainer_with_val_at_train', call_sasrec_trainer_with_val_at_train)
 
 class SASRecTrainerWithEmbeddingSpredoutRegularization(SASRecTrainer) :
     

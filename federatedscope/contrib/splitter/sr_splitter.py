@@ -28,14 +28,10 @@ class SRSpliiter(BaseSplitter):
 
         data_list = []
         if len(user_ids) == self.client_num :
-            ## TODO:
-            # No need to user prior or do we?
-            # When performing random sampling we might have to use it 
-            idxs = range(0, len(user_ids))
-            
-            for idx in idxs :
-                idx_range = dataset._from_user_idx_get_user_subset_range(idx)
-                client_dataset = Subset(dataset, idx_range)
+            ## idxs = range(0, len(user_ids))
+            full_subset_range = dataset.get_full_subset_range()
+            for subset_indices in full_subset_range :
+                client_dataset = Subset(dataset, subset_indices)
                 data_list.append(client_dataset)
             return data_list
         
@@ -50,12 +46,18 @@ class SRSpliiter(BaseSplitter):
                     data_list.append(client_dataset)    
                 return data_list
             else :
-                idxs = range(0, len(user_ids))     
-                for idx in idxs :
-                    idx_range = dataset._from_user_idx_get_user_subset_range(idx)
-                    client_dataset = Subset(dataset, idx_range)
+                ## idxs = range(0, len(user_ids))
+                full_subset_range = dataset.get_full_subset_range()
+                for subset_indices in full_subset_range :
+                    client_dataset = Subset(dataset, subset_indices)
                     data_list.append(client_dataset)
                 return data_list
+                #idxs = range(0, len(user_ids))     
+                #for idx in idxs :
+                #    idx_range = dataset._from_user_idx_get_user_subset_range(idx)
+                #    client_dataset = Subset(dataset, idx_range)
+                #    data_list.append(client_dataset)
+                #return data_list
         else : 
             ## NOTE : This part do not support random client setup
             ## Assume client_id == user_id

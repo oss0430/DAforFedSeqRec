@@ -35,9 +35,27 @@ def extend_cfg_for_sasrec_ml1m(cfg) :
     cfg.data.item_column = 'item_id:token'
     cfg.data.interaction_column = 'rating:float'
     cfg.data.timestamp_column = 'timestamp:float'
-    cfg.data.augmentation_column = 'augmentation_idx:token'
-    cfg.data.use_augmentation = False
-    cfg.data.max_augmentation_idx = 0 ## only load augmentation column values less and equal to this value 
+    
+    ## --------- Augmentations -----------------
+    cfg.data.augmentation_args = CN(new_allowed=True)
+    cfg.data.augmentation_args.use_augmentation = False
+    cfg.data.augmentation_args.augmentation_column = 'augmentation_idx:token'
+    cfg.data.augmentation_args.max_augmentation_idx = -1
+    cfg.data.augmentation_args.is_multiple = False
+    cfg.data.augmentation_args.aug_types_count = 0
+    cfg.data.augmentation_args.aug_types_map_path = '' 
+    cfg.data.augmentation_args.is_zero_original = True
+    cfg.data.augmentation_args.df_paths = []
+    
+    cfg.data.augmentation_controller = CN(new_allowed=True)
+    cfg.data.augmentation_controller.type = 'mab' ## 'mab', 'epsilon_greedy', 'thompson', 'sliding_window', 'mdp'
+    cfg.data.augmentation_controller.args = CN(new_allowed=True)
+    cfg.data.augmentation_controller.args.decay_rate = 0.99
+    cfg.data.augmentation_controller.args.alpha = 2.0
+    cfg.data.augmentation_controller.args.epsilon = 0.1
+    cfg.data.augmentation_controller.args.window_size = 100
+    cfg.data.augmentation_controller.args.lr = 0.01
+    cfg.data.augmentation_controller.args.gamma = 0.9
     
     cfg.data.partitioned_df_path = '../../../../data1/donghoon/FederatedScopeData/ml-1m/split'
     cfg.data.save_partitioned_df_path = '../../../../data1/donghoon/FederatedScopeData/ml-1m/split'

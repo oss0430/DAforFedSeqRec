@@ -3,10 +3,12 @@ import numpy as np
 import logging
 import torch
 import pandas as pd
+from tqdm import tqdm
 from typing import List, Tuple, Dict, Any, Optional
 
 from federatedscope.core.data import BaseDataTranslator
 from federatedscope.register import register_data
+from federatedscope.core.configs.config import CN
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -59,6 +61,7 @@ class SequentialRecommendationTrainset(torch.utils.data.Dataset):
         user_id_list, item_seq_index, target_index, item_seq_length = [], [], [], []
         
         user_hashing = {} # for creating sub-dataset via user
+        listed_range = []
         
         seq_start = 0
         instance_count = 0
@@ -70,6 +73,7 @@ class SequentialRecommendationTrainset(torch.utils.data.Dataset):
                 last_user_id = user_id
                 seq_start = i
                 user_hashing[user_id] = {"start" : instance_count, "end" : None}
+                listed_range.append(instance_count)
                 last_user_instance_count = 0
             else :
                 if i - seq_start > self.max_sequence_length :
@@ -81,13 +85,14 @@ class SequentialRecommendationTrainset(torch.utils.data.Dataset):
                 instance_count += 1
         ## update user hashing for the last user
         user_hashing[last_user_id]["end"] = instance_count
+        listed_range.append(instance_count)
         
         self.user_id_list = user_id_list
         self.item_seq_index = item_seq_index
         self.target_index = target_index
         self.item_seq_length = item_seq_length
         self.user_hashing = user_hashing
-
+        self.listed_range = listed_range
         
     def __len__(self) :
         return len(self.user_id_list)
@@ -138,6 +143,20 @@ class SequentialRecommendationTrainset(torch.utils.data.Dataset):
         return range(start_end_dict["start"], start_end_dict["end"])
     
 
+    def get_full_subset_range(self):
+        subset_range = []
+        range_starts = self.listed_range[:-1]
+        range_ends = self.listed_range[1:]
+        
+        for start, end in tqdm(zip(range_starts, range_ends), total=len(range_starts)):
+            subset_range.append(range(start, end))
+        
+        return subset_range
+        
+        
+        
+    
+    
 class SequentialRecommendationValidset(torch.utils.data.Dataset):
     
     def __init__(
@@ -172,9 +191,6 @@ class SequentialRecommendationValidset(torch.utils.data.Dataset):
             self.item_num = max(df[item_column].unique())
         else :
             self.item_num = item_num
-    
-    
-    
                 
     
     def __len__(self) :
@@ -183,6 +199,13 @@ class SequentialRecommendationValidset(torch.utils.data.Dataset):
     
     def _from_user_idx_get_user_subset_range(self, idx):
         return [idx] 
+    
+    
+    def get_full_subset_range(self):
+        full_subset_range = []
+        for i in range(len(self.df[self.user_column].unique())):
+            full_subset_range.append(self._from_user_idx_get_user_subset_range(i))
+        return full_subset_range
     
     
     def _get_user_df_and_user_id(
@@ -276,6 +299,7 @@ class SequentialRecommendationTrainsetWithAugmentation(SequentialRecommendationT
         user_id_list, item_seq_index, target_index, item_seq_length = [], [], [], []
         
         user_hashing = {} # for creating sub-dataset via user
+        listed_range = []
         
         seq_start = 0
         instance_count = 0
@@ -283,16 +307,18 @@ class SequentialRecommendationTrainsetWithAugmentation(SequentialRecommendationT
         user_and_augmentation_zip = zip(self.df[self.user_column].values, 
                                         self.df[self.augmentation_column].values)
         for i, (user_id, augmentation_idx) in enumerate(user_and_augmentation_zip):
-            if last_user_id != user_id:
+            
+            if last_user_id != user_id or last_augmentation_idx != augmentation_idx:
                 ## updating hashing occurs only when user changes
-                if last_user_id :
-                    user_hashing[last_user_id]["end"] = instance_count
-                last_user_id = user_id
-                user_hashing[user_id] = {"start" : instance_count, "end" : None}
-            if last_augmentation_idx != augmentation_idx:
-                ## new sequence begins when augmentation_idx changes
+                if last_user_id != user_id :
+                    if last_user_id :
+                        user_hashing[last_user_id]["end"] = instance_count
+                    last_user_id = user_id
+                    user_hashing[user_id] = {"start" : instance_count, "end" : None}
+                    listed_range.append(instance_count)
+                ## sequence starts when either user or augmentation changes
                 seq_start = i
-                last_augmentation_idx = augmentation_idx    
+                last_augmentation_idx = augmentation_idx
             else :
                 if i - seq_start > self.max_sequence_length :
                     seq_start += 1
@@ -304,13 +330,14 @@ class SequentialRecommendationTrainsetWithAugmentation(SequentialRecommendationT
         
         ## update user hashing for the last user
         user_hashing[last_user_id]["end"] = instance_count
+        listed_range.append(instance_count)
         
         self.user_id_list = user_id_list
         self.item_seq_index = item_seq_index
         self.target_index = target_index
         self.item_seq_length = item_seq_length
         self.user_hashing = user_hashing
-    
+        self.listed_range = listed_range
 
  
 class SequentialRecommendationDatasetWithAugmentation(SequentialRecommendationValidset):
@@ -394,7 +421,134 @@ class SequentialRecommendationDatasetWithAugmentation(SequentialRecommendationVa
         
         return user_df, user_id
         
+
+class SequentialRecommendationTrainsetWithMultipleAugmentation(torch.utils.data.Dataset):
+    
+    """
+    Multiple Augmentation Provides
+    Augmentation & User - Wise Sub Sampling
+    """
+    def __init__(
+        self,
+        dfs : List[pd.DataFrame],
+        user_column : str,
+        item_column : str,
+        interaction_column : str,
+        timestamp_column : str,
+        augmentation_column : str,
+        min_sequence_length : int = None,
+        max_sequence_length : int = None,
+        user_num : int = None,
+        item_num : int = None,
+        padding_value : int = 0
+    ) :
+        self.df = dfs[0] ## reference for user_num and item_num
+        self.user_column = user_column
+        self.item_column = item_column
+        self.interaction_column = interaction_column
+        self.augmentation_column = augmentation_column
+        self.timestamp_column = timestamp_column
+        self.min_sequence_length = min_sequence_length
+        self.max_sequence_length = max_sequence_length
+        self.padding_value = padding_value
+        super(SequentialRecommendationTrainsetWithMultipleAugmentation, self).__init__()
+        augmentation_datasets = []
+        for idx, df in enumerate(dfs):
+            logger.info(f"SRData : loading Augmentation {idx + 1} / {len(dfs)}")
+            augmentation_datasets.append(
+                SequentialRecommendationTrainsetWithAugmentation(
+                    df,
+                    user_column,
+                    item_column,
+                    interaction_column,
+                    timestamp_column,
+                    augmentation_column,
+                    min_sequence_length,
+                    max_sequence_length,
+                    user_num,
+                    item_num,
+                    padding_value
+                )
+            )
+        self.augmentation_datasets = augmentation_datasets
+        self.construct_full_subset_range()
+    
+    def __len__(self) :
+        total_length = 0
+        for dataset in self.augmentation_datasets:
+            total_length += len(dataset)
+        return total_length
+    
+    
+    def __getitem__(self, idx : int) -> Tuple[torch.Tensor,torch.Tensor,torch.Tensor] :
+        for dataset in self.augmentation_datasets:
+            if idx < len(dataset):
+                return dataset[idx]
+            else :
+                idx -= len(dataset)
+    
+    
+    def construct_full_subset_range(self):
+        full_subset_range_via_augmentation = []
         
+        for dataset in self.augmentation_datasets:
+            full_subset_range_via_augmentation.append(dataset.listed_range)
+        full_subset_range_via_augmentation = full_subset_range_via_augmentation
+        
+        import numpy as np
+        full_subset_range_via_augmentation = np.stack(full_subset_range_via_augmentation)
+        row_offsets = [0]
+        for i in range(1, len(full_subset_range_via_augmentation)):
+            row_offsets.append(full_subset_range_via_augmentation[i-1][-1])
+        for i in range(1, len(full_subset_range_via_augmentation)):
+            row_offsets[i] = row_offsets[i-1] + row_offsets[i]   
+        
+        ## add offset to each row
+        self.full_subset_range_via_augmentation = full_subset_range_via_augmentation +\
+                                                  np.array(row_offsets).reshape(-1,1)
+        
+        
+    
+    def _from_user_idx_get_user_subset_range(self, idx):
+        
+        combined_ranges = list()       
+        offset = 0
+        for dataset in self.augmentation_datasets:
+            current_range = dataset._from_user_idx_get_user_subset_range(idx)
+            current_range = [x + offset for x in current_range]
+            combined_ranges += current_range
+            offset += len(dataset)
+        return combined_ranges
+    
+    
+    def _from_user_idx_and_augmentation_type_idx_get_subset_range(self, idx, aug_type_idx):
+            
+        dataset = self.augmentation_datasets[aug_type_idx]
+        offset = 0
+        for i in range(aug_type_idx):
+            offset += len(self.augmentation_datasets[i])
+        
+        user_subset_range = dataset._from_user_idx_get_user_subset_range(idx)
+        return [x + offset for x in user_subset_range]
+            
+    
+    def get_full_subset_range(self):
+        
+        list_of_ranges = []
+        import numpy as np
+        
+        range_starts = self.full_subset_range_via_augmentation[:,:-1]
+        range_ends = self.full_subset_range_via_augmentation[:,1:]
+        
+        for j in range(range_starts.shape[1]):
+            user_range = []
+            for i in range(self.full_subset_range_via_augmentation.shape[0]):
+                user_range += list(range(range_starts[i][j], range_ends[i][j]))
+            list_of_ranges.append(user_range)
+        
+        return list_of_ranges
+    
+
 def cut_by_in_sequence_length(
     sorted_df : pd.DataFrame,
     user_column : str,
@@ -545,6 +699,174 @@ def check_user_num_consistancy(
         return False
 
 
+def _load_aug_types_map(
+    augmentation_args : CN
+) -> Dict[any, any] :
+    
+    aug_types_count = augmentation_args.aug_types_count
+    aug_types_map = pd.read_csv(augmentation_args.aug_types_map_path)
+    ## iter over dataframe and create a dictionary
+    aug_dict = {}
+    
+    for idx, row in aug_types_map.iterrows():
+        aug_label = row["label"]
+        aug_start = row["start"]
+        aug_end = row["end"]
+        aug_range = range(aug_start, aug_end)
+        aug_dict[aug_label] = aug_range
+        if idx > aug_types_count :
+            break
+        
+    ## check if the map is consistent with the count
+    assert len(aug_dict) == aug_types_count, \
+        "Augmentation Map and Augmentation Count is not Consistent"
+    
+    return aug_dict
+
+
+def cut_df_by_aug_idx(
+    df : pd.DataFrame,
+    augmentation_column : str,
+    max_augmentation_idx : int
+) -> pd.DataFrame :
+    if max_augmentation_idx > 0 :
+        df = df[df[augmentation_column] <= max_augmentation_idx]
+        df = df.reset_index(drop=True)
+    return df
+
+
+def load_augmentation_df(
+    augmentation_args : CN,
+    df_folder_path : str
+) -> pd.DataFrame :
+    """
+    augmentation_args : CN : Augmentation Arguments
+    df_path : str : Path to the Augmentation DataFrame
+    -------------------------------------------------
+    load single augmentation dataframe
+    with regards of max_augmentation_idx
+    with regards of remove_original & is_zero_original
+    
+    add augmentation columnn if not exists
+    """
+    df_path = os.path.join(df_folder_path, 'train.csv')
+    df = pd.read_csv(df_path)
+    
+    augmentation_column = augmentation_args.augmentation_column
+    
+    if augmentation_column not in df.columns :
+        ## add augmentation column with zero value
+        df[augmentation_column] = 0
+        
+    df = cut_df_by_aug_idx(df, augmentation_column, augmentation_args.max_augmentation_idx)
+    
+    return df
+
+
+def build_training_dataset(
+    df : pd.DataFrame,
+    user_column : str,
+    item_column : str,
+    interaction_column : str,
+    timestamp_column : str,
+    min_sequence_length : int = 5,
+    max_sequence_length : int = 200,
+    user_num : int = None,
+    item_num : int = None,
+    padding_value : int = 0,
+    augmentation_args : CN = None,
+) :
+    if augmentation_args.use_augmentation :
+        # drop some augmentation above max_augmentation_idx
+        # unless load all
+        if augmentation_args.is_multiple :
+            ## ignore the given df and read multiple dfs specified at
+            del df
+            ## data.augmentation_args.df_paths
+            dfs = []
+            for folder_path in augmentation_args.df_paths :
+                dfs.append(load_augmentation_df(augmentation_args, folder_path))
+                
+            trainset = SequentialRecommendationTrainsetWithMultipleAugmentation(
+                dfs,
+                user_column,
+                item_column,
+                interaction_column,
+                timestamp_column,
+                augmentation_args.augmentation_column,
+                min_sequence_length,
+                max_sequence_length,
+                user_num,
+                item_num,
+                padding_value
+            )
+        else :
+            df = cut_df_by_aug_idx(df, augmentation_args.augmentation_column, augmentation_args.max_augmentation_idx)
+            trainset = SequentialRecommendationTrainsetWithAugmentation(
+                df,
+                user_column,
+                item_column,
+                interaction_column,
+                timestamp_column,
+                augmentation_args.augmentation_column,
+                min_sequence_length,
+                max_sequence_length,
+                user_num,
+                item_num,
+                padding_value
+            )
+    else :
+        trainset = SequentialRecommendationTrainset(
+            df,
+            user_column,
+            item_column,
+            interaction_column,
+            timestamp_column,
+            min_sequence_length,
+            max_sequence_length,
+            user_num,
+            item_num,
+            padding_value
+        )
+    
+    return trainset
+
+
+def make_partitioned_df(
+    df_path : pd.DataFrame,
+    user_column : str,
+    timestamp_column : str,
+    save_partitioned_df_path : str = None    
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] :
+    """
+    Make partitioned dataframe and save it to the save_partitioned_df_path
+    
+    args :
+        df_path : str : path to the dataframe
+        user_column : str : column name for user
+        timestamp_column : str : column name for timestamp
+        save_partitioned_df_path : str : path to save the partitioned dataframe \
+            if None, it will not save the partitioned dataframe
+    """
+    logger.info("SRData : Partitioned Dataframe not found, Splitting Dataframe")
+    # Sort Dataframe by user and timestamp
+    df = pd.read_csv(df_path, header = 0, sep = '/t')
+    df = df.sort_values([user_column, timestamp_column])
+        
+    # Split Dataframe in to train, valid, test according to leave one out strategy
+    train_df, valid_df, test_df = split_dataframe_into_train_valid_test(df, user_column)
+    
+    if save_partitioned_df_path :
+        logger.info("SRData : Saving Partitioned Dataframe to {}".format(save_partitioned_df_path))
+        if not os.path.exists(save_partitioned_df_path):
+            os.makedirs(save_partitioned_df_path)
+        
+        train_df.to_csv(os.path.join(save_partitioned_df_path, 'train.csv'), index = False)
+        valid_df.to_csv(os.path.join(save_partitioned_df_path, 'valid.csv'), index = False)
+        test_df.to_csv(os.path.join(save_partitioned_df_path, 'test.csv'), index = False)
+
+    return train_df, valid_df, test_df
+
 
 def make_sr_dataset(
     df_path : str,
@@ -552,95 +874,118 @@ def make_sr_dataset(
     item_column : str,
     interaction_column : str,
     timestamp_column : str,
-    augmentation_column : str = None,
-    use_augmentation : bool = False,
-    max_augmentation_idx : int = 0,
+    augmentation_args : CN = None,
     partitioned_df_path : str = None,
     save_partitioned_df_path : str = None,
     min_sequence_length : int = None, 
     max_sequence_length : int = None,
     user_num : int = None,
     item_num : int = None,
-    padding_value : int = 0
+    padding_value : int = 0,
+    config : CN = None
 ) -> Tuple[SequentialRecommendationTrainset,
            SequentialRecommendationValidset,
            SequentialRecommendationValidset] :
     
-    if use_augmentation :
-        logger.warning("SRData with Augmentation is only availiable for reading")
-        train_with_augmentation_df = pd.read_csv(os.path.join(partitioned_df_path, 'train.csv'))
-        
-        ## drop the augmentation index that is greater than max_augmentation_idx
-        train_with_augmentation_df = train_with_augmentation_df[train_with_augmentation_df[augmentation_column] <= max_augmentation_idx]
-        train_with_augmentation_df = train_with_augmentation_df.reset_index(drop=True)
-        
+    try :
+        train_df = pd.read_csv(os.path.join(partitioned_df_path, 'train.csv'))
         valid_df = pd.read_csv(os.path.join(partitioned_df_path, 'valid.csv'))
         test_df = pd.read_csv(os.path.join(partitioned_df_path, 'test.csv'))
+    except :
+        if augmentation_args.use_augmentation :
+            logger.warning("SRData with Augmentation is only availiable for reading")
+            raise ValueError("SRData with Augmentation is only availiable for reading")
+        else :
+            train_df, valid_df, test_df = make_partitioned_df(df_path,
+                                                              user_column,
+                                                              timestamp_column,
+                                                              save_partitioned_df_path)
+    
+    ## Check the consistancy of user number
+    check_user_num_consistancy(user_column, train_df, valid_df, test_df)
+    ## Fix user_num and item_num according to test_df
+    user_num = len(test_df[user_column].unique())
+    item_num = max(test_df[item_column].unique())
+    
+    trainset = build_training_dataset(
+        train_df,
+        user_column,
+        item_column,
+        interaction_column,
+        timestamp_column,
+        min_sequence_length,
+        max_sequence_length,
+        user_num,
+        item_num,
+        padding_value,
+        augmentation_args
+    )
+    
+    """
+    import time
+    from torch.utils.data import Dataset, Subset
+    
+    
+    full_subset_range = trainset.get_full_subset_range()
+    
+    random_user = trainset.df[user_column].sample(1).values[0]
+    start = time.time()
+    subset_range = trainset._from_user_idx_get_user_subset_range(random_user)
+    subset_trainset = Subset(trainset, subset_range)
+    subset_dataloader = torch.utils.data.DataLoader(subset_trainset, batch_size = 1, shuffle = False)
+    end = time.time()
+    print("Time for Single User Subset Range Query with Hash : ", end - start)
+    print(f"total {len(subset_range)} interactions to check for")
+    
+    
+    from federatedscope.contrib.model.sasrec import SASRec, call_sasrec
+    model = call_sasrec(config.model, None)
+    model.to("cuda:0")
+    
+    start = time.time()
+    ## try all forward for single user and calculate time
+    for batch in subset_dataloader :
         
-        check_user_num_consistancy(user_column, train_with_augmentation_df, valid_df, test_df)
+        item_seq = batch["item_seq"].to("cuda:0")
+        item_seq_len = batch["item_seq_len"].to("cuda:0")
+        target_item = batch["target_item"].to("cuda:0")
         
-        user_num = len(test_df[user_column].unique())
-        item_num = max(test_df[item_column].unique())
+        outputs = model(item_seq, item_seq_len)
+    
+    end = time.time()
+    print("Time for Single User Forward : ", end - start)
+    
+    ## getting augmentation range
+    start = time.time()
+    subset_range_for_aug = trainset._from_user_idx_and_augmentation_type_idx_get_subset_range(random_user, 0)
+    
+    subset_trainset_for_aug = Subset(trainset, subset_range_for_aug)
+    subset_dataloader_for_aug = torch.utils.data.DataLoader(subset_trainset_for_aug, batch_size = 1, shuffle = False)
+    end = time.time()
+    print("Time for Single User Subset Range for Augmentation : ", end - start)
+    print(f"total {len(subset_range_for_aug)} interactions to check for")
+    ## 
+    start = time.time()
+    criterion = torch.nn.CrossEntropyLoss()
+    for batch in subset_dataloader_for_aug :
+        item_seq = batch["item_seq"].to("cuda:0")
+        item_seq_len = batch["item_seq_len"].to("cuda:0")
+        target_item = batch["target_item"].to("cuda:0")
         
-        trainset = SequentialRecommendationTrainsetWithAugmentation(
-            train_with_augmentation_df,
-            user_column,
-            item_column,
-            interaction_column,
-            timestamp_column,
-            augmentation_column,
-            min_sequence_length,
-            max_sequence_length,
-            user_num,
-            item_num,
-            padding_value
-        )
+        outputs = model(item_seq, item_seq_len)
+        test_item_emb = model.item_embedding.weight
+        logits = torch.matmul(outputs, test_item_emb.transpose(0,1))
+        loss = criterion(logits, target_item)
+        loss.backward()
         
-        
-    else :   
-        try :
-            train_df = pd.read_csv(os.path.join(partitioned_df_path, 'train.csv'))
-            valid_df = pd.read_csv(os.path.join(partitioned_df_path, 'valid.csv'))
-            test_df = pd.read_csv(os.path.join(partitioned_df_path, 'test.csv'))
-            
-            check_user_num_consistancy(user_column, train_df, valid_df, test_df)
-            
-        except :
-            ## Read the original dataframe and split it
-            logging.info("SRData : Partitioned Dataframe not found, Splitting Dataframe")
-            # Sort Dataframe by user and timestamp
-            df = pd.read_csv(df_path, header = 0, sep = '\t')
-            df = df.sort_values([user_column, timestamp_column])
-                
-            # Split Dataframe in to train, valid, test according to leave one out strategy
-            train_df, valid_df, test_df = split_dataframe_into_train_valid_test(df, user_column)
-            
-            if save_partitioned_df_path :
-                logging.info("SRData : Saving Partitioned Dataframe")
-                if not os.path.exists(save_partitioned_df_path):
-                    os.makedirs(save_partitioned_df_path)
-                
-                train_df.to_csv(os.path.join(save_partitioned_df_path, 'train.csv'), index = False)
-                valid_df.to_csv(os.path.join(save_partitioned_df_path, 'valid.csv'), index = False)
-                test_df.to_csv(os.path.join(save_partitioned_df_path, 'test.csv'), index = False)
-        
-        ## Fix user_num and item_num according to test_df
-        user_num = len(test_df[user_column].unique())
-        item_num = max(test_df[item_column].unique())
-            
-        trainset = SequentialRecommendationTrainset(
-            train_df,
-            user_column,
-            item_column,
-            interaction_column,
-            timestamp_column,
-            min_sequence_length,
-            max_sequence_length,
-            user_num,
-            item_num,
-            padding_value
-        )
-        
+    end = time.time()
+    print("Time for Single User Forward & backward for Augmentation : ", end - start)
+    
+    
+    #end_2 = time.time()
+    """
+    
+    
     validset = SequentialRecommendationValidset(
         valid_df,
         user_column,
@@ -668,31 +1013,32 @@ def make_sr_dataset(
     )
     
     return trainset, validset, testset
-    
-    
+ 
 
 def load_sr_data(
     config,
     client_cfgs = None
 ) : 
+
     trainset, validset, testset = make_sr_dataset(
         config.data.df_path,
         config.data.user_column,
         config.data.item_column,
         config.data.interaction_column,
         config.data.timestamp_column,
-        config.data.augmentation_column,
-        config.data.use_augmentation,
-        config.data.max_augmentation_idx,
+        config.data.augmentation_args,
         config.data.partitioned_df_path,
         config.data.save_partitioned_df_path,
         config.data.min_sequence_length,
         config.data.max_sequence_length,
         config.data.user_num,
         config.data.item_num,
-        config.data.padding_value
+        config.data.padding_value,
+        config
     )
-    
+    ## NOTE!
+    ## This part is too slow for Large Dataset
+    ## Consider skipping this part when using Shadow Runner
     translator = BaseDataTranslator(config, client_cfgs)
     fs_data = translator((trainset, validset, testset))
     

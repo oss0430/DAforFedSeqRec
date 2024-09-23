@@ -3,7 +3,7 @@ import logging
 
 from collections import deque
 import heapq
-
+from copy import deepcopy
 import numpy as np
 
 from federatedscope.core.workers import Server, Client
@@ -1059,8 +1059,9 @@ class StandAloneShadowRunner(StandaloneRunner):
         Maintain the client in the number of sample_client_num
         and assign data after.
         """
-        assert self.cfg.federate.method == "shadow", \
-            "to use ShadowRunner, the method should be shadow"
+        #assert self.cfg.federate.method == "shadow" or \
+        #    self.cfg.federate.method == "shadow_with_aug_selection" \
+        #    "to use ShadowRunner, the method should be shadow"
         
         self.is_run_online = True if self.cfg.federate.online_aggr else False
         self.shared_comm_queue = deque()
