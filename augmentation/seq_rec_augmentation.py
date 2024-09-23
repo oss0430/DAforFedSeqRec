@@ -32,6 +32,8 @@ parser.add_argument('-ple', '--push_length_range_end', type = int, default = 4)
 parser.add_argument('-n', '--number_of_generation', type=int, default=60)
 parser.add_argument('-s', '--seed', type=int, default=42)
 
+parser.add_argument('-no_org', '--no_original', type = bool, default = True)
+
 args = parser.parse_args()
 
 ## ML-1m configurations
@@ -48,24 +50,24 @@ ml_1m_configs = {
 
 ## Amazon_Beauty configurations
 amazon_beauty_configs = {
-    "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped/split/train.csv',
-    "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped/',
+    "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/split/train.csv',
+    "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/',
     "user_column" : 'user_id:token',
     "item_column" : 'item_id:token',
     "timestamp_column" : 'timestamp:float',
-    "max_item_ids" : 259204,
+    "max_item_ids" : 12101,
     "max_sequence_length" : 50,
     "min_sequence_length" : 3
 }
 
 ## Amazon_Sports configurations
 amazon_sports_configs = {
-    "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core_mapped/split/train.csv',
-    "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core_mapped/',
+    "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/split/train.csv',
+    "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/',
     "user_column" : 'user_id:token',
     "item_column" : 'item_id:token',
     "timestamp_column" : 'timestamp:float',
-    "max_item_ids" : 532197,
+    "max_item_ids" : 18357,
     "max_sequence_length" : 50,
     "min_sequence_length" : 3
 }
@@ -294,8 +296,8 @@ class RandomSequencePushing(AugmentationGenerator) :
         maximum_result_length = sequence_length + self.push_length_range[1]
     
         if minimum_result_length > self.max_sequence_length :
-            push_length_range_start = self.min_sequence_length - sequence_length
-            push_length_range_end = self.min_sequence_length - sequence_length
+            push_length_range_start = self.max_sequence_length - sequence_length
+            push_length_range_end = self.max_sequence_length - sequence_length
         elif maximum_result_length > self.max_sequence_length :
             push_length_range_start = self.push_length_range[0]
             push_length_range_end = self.max_sequence_length - sequence_length
@@ -358,30 +360,45 @@ def turn_result_into_dataframe(
     user_column : str,
     item_column : str,
     timestamp_column : str,
-    augmentation_column : str = "augmentation_idx:token"
+    augmentation_column : str = "augmentation_idx:token",
+    remove_original : bool = True
 ) :
     ## Turn the resulted dataset into a dataframe
     user_id_per_tokenized_sequences = []
     
     for i in tqdm(range(len(resulted_dataset['user_id'])), desc='Converting to dataframe') :
+        users_tokenized_sequences = []
+        
         user_id = resulted_dataset['user_id'][i]
         original_sequence = resulted_dataset['original'][i]
         list_of_augmented = resulted_dataset['list_of_augmented'][i]
         
-        ## initilize with original sequence
-        tokenized_sequences = sequence_to_tokens(user_id, original_sequence)
-        ## add column of augmentation index
-        current_augmentation_index = 0
-        tokenized_sequences = np.concatenate([tokenized_sequences, np.full((tokenized_sequences.shape[0], 1), current_augmentation_index)], axis=1)
+        ## Remove Original sequence when augmented sequence exists
+        can_remove_org = False
+        if remove_original :
+            if len(list_of_augmented) > 0 :
+                can_remove_org = True
+            else :
+                can_remove_org = False
+        if can_remove_org :
+            current_augmentation_index = -1
+        else :
+            ## initilize with original sequence
+            original_sequence_tokenized = sequence_to_tokens(user_id, original_sequence)
+            current_augmentation_index = 0        
+            original_sequence_tokenized = np.concatenate([original_sequence_tokenized, np.full((original_sequence_tokenized.shape[0], 1), current_augmentation_index)], axis=1)
+            users_tokenized_sequences.append(original_sequence_tokenized)
         
+        ## column adding to augmented sequences tokenized
         for current_augmented_sequence in list_of_augmented :
             current_augmentation_index = current_augmentation_index + 1
             tokenized_augmented_sequence = sequence_to_tokens(user_id, current_augmented_sequence)
             ## add column of augmentation index
             tokenized_augmented_sequence = np.concatenate([tokenized_augmented_sequence, np.full((tokenized_augmented_sequence.shape[0], 1), current_augmentation_index)], axis=1)
+            users_tokenized_sequences.append(tokenized_augmented_sequence)
             ##concatenate to original vertically
-            tokenized_sequences = np.concatenate([tokenized_sequences, tokenized_augmented_sequence], axis=0)
         
+        tokenized_sequences = np.concatenate(users_tokenized_sequences, axis=0)
         user_id_per_tokenized_sequences.append(tokenized_sequences)
     
     ## Concatenate all the tokenized sequences
@@ -441,6 +458,11 @@ def __main__():
         elif augmentation_type == 'random_pushing' or augmentation_type == 'self_sampled_pushing' :
             leaf_folder = f"{leaf_folder}_{direction}_{push_length_range[0]}_{push_length_range[1]}"
         save_path_dir = result_branch_path + leaf_folder
+        ## remove the original sequence if we can
+        if args.no_original :
+            save_path_dir = save_path_dir + '_no_original'
+        else :
+            save_path_dir = save_path_dir + '_with_original'
     
     train_dataframe = pd.read_csv(train_dataframe_path)
     full_sequence_dataset = SequenceDataset(train_dataframe, user_column, item_column, timestamp_column)
@@ -459,6 +481,11 @@ def __main__():
     elif augmentation_type == 'self_sampled_pushing' :
         print("Push direction : ", direction)
         print("Push length range : ", push_length_range)
+    
+    if args.no_original :
+        print("we are removing the original sequence if we can")
+    else :
+        print("we are keeping the original sequence")
     
     if augmentation_type == 'random_replacing' :
         augmentation_generator = RandomReplacingAugmentation(full_sequence_dataset,
@@ -501,7 +528,12 @@ def __main__():
     
     resulted_dataset = augmentation_generator.generate()
     
-    resulted_dataframe = turn_result_into_dataframe(resulted_dataset, user_column, item_column, timestamp_column, augmentation_column)
+    resulted_dataframe = turn_result_into_dataframe(resulted_dataset,
+                                                    user_column,
+                                                    item_column,
+                                                    timestamp_column,
+                                                    augmentation_column,
+                                                    args.no_original)
     print("saving to : ", save_path_dir)
     os.makedirs(save_path_dir, exist_ok=True)
     save_path = os.path.join(save_path_dir, f'train.csv')
