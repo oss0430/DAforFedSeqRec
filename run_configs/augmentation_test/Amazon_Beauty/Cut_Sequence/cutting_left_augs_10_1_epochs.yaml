@@ -1,7 +1,7 @@
 use_gpu: True
 device: 0
 early_stop:
-  patience: 250
+  patience: 1000
 federate:
   mode: standalone
   method : shadow
@@ -14,8 +14,8 @@ federate:
   client_num: 16 #22363
   sample_client_num: 16
   sample_client_rate: -1.0
-  make_global_eval : False
-  save_to : "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/cutting_left_10_augs_0828_30K_rounds_hidden_size_64_lr1-e3_1_epochs.pt"
+  make_global_eval : True
+  save_to : "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/0829_cutting_left_10_augs_30K_rounds_hidden_size_64_lr1-e3_1_epochs.pt"
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped
   type: sr_data
@@ -50,7 +50,7 @@ criterion:
 trainer:
   type: sasrec_trainer
 eval:
-  freq: 250
+  freq: 1000
   metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss

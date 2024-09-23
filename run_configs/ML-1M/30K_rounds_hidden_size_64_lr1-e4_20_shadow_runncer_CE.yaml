@@ -10,7 +10,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : False
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/0826_hidden_size_64_CE_lr1-e4_epoch_20_shadow_round_30K.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/0902_hidden_size_64_CE_lr1-e4_epoch_20_shadow_round_30K.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 6040
@@ -38,7 +38,7 @@ criterion:
 trainer:
   type: sasrec_trainer
 eval:
-  freq: 250
+  freq: 1000
   metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss

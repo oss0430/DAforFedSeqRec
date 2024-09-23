@@ -1,7 +1,7 @@
 use_gpu: True
 device: 0
 early_stop:
-  patience: 5
+  patience: 1000
 federate:
   mode: standalone
   method : shadow
@@ -14,8 +14,8 @@ federate:
   client_num: 16 #22363
   sample_client_num: 16
   sample_client_rate: -1.0
-  make_global_eval : False
-  save_to : "../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/0823_30K_rounds_hidden_size_64_lr1-e3_epoch_20_shadow_runner_CE.pt"
+  make_global_eval : True
+  save_to : "../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/0829_30K_rounds_hidden_size_64_lr1-e3_epoch_20_shadow_runner_CE.pt"
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core_mapped
   type: sr_data
@@ -47,7 +47,7 @@ criterion:
 trainer:
   type: sasrec_trainer
 eval:
-  freq: 250
+  freq: 500
   metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss

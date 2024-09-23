@@ -9,12 +9,14 @@
             "console" : "integratedTerminal",
             "args" : [
                 "-o", "amazon_beauty", // original dataset name
+                "-n", "2",
                 "-r", "", //"../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped/debug", // result dataset name (if not given, it will be original dataset name + augmentation type)
-                "-t", "random_replacing", // augmenation type
+                "-t", "random_pushing", // augmenation type
                 "-d", "left", // direction, only used at cutting augmentation
                 "-p", "0.1", // replace probabiliy, only used at replace augmentation
                 "-pls", "5", // push length range start, only used at pushing augmentation
-                "-ple", "10" // push length range end, only used at pushing augmentation
+                "-ple", "10", // push length range end, only used at pushing augmentation
+                "-no_org", "True"
             ]
         },
         {
@@ -24,7 +26,7 @@
             "program" : "main.py",
             "console" : "integratedTerminal",
             "args" : [
-                "--cfg", "run_configs/augmentation_test/Amazon_Beauty/Random_Replace/random_replace_1e-1_augs_10_1_epochs.yaml"
+                "--cfg", "run_configs/aug_select_org_removed/Amazon_Beauty_Debug.yaml"
             ]
         },
         {
