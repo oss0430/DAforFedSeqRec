@@ -15,7 +15,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to : "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/0905_30K_rounds_hidden_size_64_lr1-e3_batch_20_shadow_runner_CE.pt"
+  save_to : "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/step_10_30K_rounds_hidden_size_64_lr1-e3_batch_20_shadow_runner_CE.pt"
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core
   type: sr_data
@@ -39,7 +39,7 @@ model:
   item_num : 12101
 train:
   batch_or_epoch : 'batch'
-  local_update_steps: 20
+  local_update_steps: 10
   optimizer:
     lr: 0.01
 criterion:
