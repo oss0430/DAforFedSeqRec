@@ -9,6 +9,7 @@ import time
 
 from typing import List
 
+from federatedscope.augmentation_control.controller import get_aug_controller
 from federatedscope.register import register_worker
 from federatedscope.core.message import Message
 from federatedscope.core.workers import Server, Client
@@ -199,367 +200,49 @@ class ShadowServer(Server):
         return self.check_and_move_on(check_eval_result=True)
 
 
-def get_aug_controller(
-    num_augs : int,
-    controller_type : str,
-    controller_args : any,
-    is_weighted : bool = False):
-    if is_weighted :
-        if controller_type == 'weighted_multi_armed_bandit':
-            return WeightedMultiArmedBandit(num_augs,
-                                            controller_args.decay_rate,
-                                            controller_args.temperature)
-    else :
-        if controller_type == 'mab':
-            return MultiArmedBandit(num_augs,
-                                    controller_args.decay_rate,
-                                    controller_args.alpha)
-        elif controller_type == 'epsilon_greedy':
-            return EpsilonGreedyBandit(num_augs,
-                                        controller_args.epsilon)
-        elif controller_type == 'thompson':
-            return ThompsonSamplingGaussianBandit(num_augs)
-        elif controller_type == 'sliding_window':
-            return SlidingWindowUCB(num_augs, 
-                                    controller_args.decay_rate,
-                                    controller_args.alpha,
-                                    controller_args.window_size)
-        elif controller_type == 'discounted_ucb':
-            return DiscountedUCB(num_augs, 
-                                controller_args.alpha,
-                                controller_args.discount_factor)
-        elif controller_type == 'mdp':
-            return MDPController(num_augs, 
-                                controller_args.lr,
-                                controller_args.gamma,
-                                controller_args.epsilon)
-        else:
-            raise ValueError(f"Unknown controller type: {controller_type}")
-
-
-class AbstractAugController:
-    
-    def __init__(self, num_augs):
-        self.num_augs = num_augs
-        self.total_reward = 0
-        self.total_runs = 0
-    
-    def get_control(self):
-        raise NotImplementedError
-    
-    
-    def update(self, reward) -> None:
-        self.total_reward += reward
-        self.total_runs += 1
-        raise NotImplementedError
-    
-    
-    def evaluate(self) -> dict:
-        if self.total_runs == 0:
-            return {"avg_reward" : 0}
-        else :
-            return {"avg_reward" : self.total_reward / self.total_runs}
-
-
-class MultiArmedBandit(AbstractAugController):
-    
-    def __init__(self, num_augs, decay_rate = 0.99, alpha = 2.0):
-        
-        self.num_augs = num_augs
-        self.decay_rate = decay_rate
-        self.alpha = alpha
-        
-        self.n_pulls = np.zeros(num_augs)
-        self.rewards = np.zeros(num_augs)
-        self.total_runs = 0
-        
-        self.cumulative_regret = []
-        self.total_reward = 0
-        self.action_distribution = np.zeros(num_augs)
-        
-            
-    def get_control(self):
-        ucb_values = np.zeros(self.num_augs)
-        for arm in range(self.num_augs):
-            if self.n_pulls[arm] == 0:
-                return arm
-            avg_reward = self.rewards[arm] / self.n_pulls[arm]
-            exploration = np.sqrt(self.alpha * np.log(self.total_runs) / self.n_pulls[arm])
-            ucb_values[arm] = avg_reward + exploration
-        return np.argmax(ucb_values)
-
-
-    def update(self, arm, reward):
-        
-        self.n_pulls[arm] += 1
-        self.rewards[arm] = self.decay_rate * self.rewards[arm] + (1 - self.decay_rate) * reward
-        self.total_runs += 1
-
-        ## evaluation purposes
-        self.total_reward += reward
-        self.action_distribution[arm] += 1
-        
-        
-    # Method to calculate and track cumulative regret
-    # NOTE : requires optimal reward to be passed
-    def track_cumulative_regret(self, optimal_reward):
-        regret = optimal_reward - self.total_reward / self.total_runs if self.total_runs > 0 else 0
-        self.cumulative_regret.append(regret)
-    
-    # Method to calculate average reward
-    def calculate_average_reward(self):
-        return self.total_reward / self.total_runs if self.total_runs > 0 else 0
-    
-    # Method to calculate action distribution
-    def calculate_action_distribution(self):
-        return self.action_distribution / self.total_runs if self.total_runs > 0 else np.zeros(self.num_augs)
-    
-    
-    def evaluate(self) -> dict:
-        
-        avg_reward = self.calculate_average_reward()
-        action_distribution = self.calculate_action_distribution()
-        # cumulative_regret = self.cumulative_regret()
-        
-        return {"avg_reward" : avg_reward, "action_distribution" : action_distribution}
-    
-
-class EpsilonGreedyBandit(AbstractAugController):
-    
-    def __init__(self, num_augs, epsilon=0.1):
-        super().__init__(num_augs)
-        self.epsilon = epsilon
-        self.n_pulls = np.zeros(num_augs)
-        self.rewards = np.zeros(num_augs)
-        self.total_runs = 0
-        self.total_reward = 0
-        self.action_distribution = np.zeros(num_augs)
-
-    def get_control(self):
-        if np.random.random() < self.epsilon:
-            # Exploration: randomly select an arm
-            return np.random.randint(self.num_augs)
-        else:
-            # Exploitation: select the arm with the highest average reward
-            avg_rewards = np.divide(self.rewards, self.n_pulls, where=self.n_pulls > 0, out=np.zeros_like(self.rewards))
-            return np.argmax(avg_rewards)
-
-    def update(self, arm, reward):
-        self.n_pulls[arm] += 1
-        self.rewards[arm] += reward
-        self.total_runs += 1
-        self.total_reward += reward
-        self.action_distribution[arm] += 1
-
-    def evaluate(self) -> dict:
-        avg_reward = self.total_reward / self.total_runs if self.total_runs > 0 else 0
-        action_distribution = self.action_distribution / self.total_runs if self.total_runs > 0 else np.zeros(self.num_augs)
-        return {"avg_reward": avg_reward, "action_distribution": action_distribution}
-
-
-class ThompsonSamplingGaussianBandit(AbstractAugController):
-    
-    def __init__(self, num_augs):
-        super().__init__(num_augs)
-        # Keep track of the sum of rewards and sum of squared rewards to calculate mean and variance
-        self.mean_rewards = np.zeros(num_augs)  # Mean of rewards for each arm
-        self.sum_squares = np.zeros(num_augs)   # Sum of squared rewards for variance calculation
-        self.n_pulls = np.zeros(num_augs)       # Number of pulls for each arm
-        self.total_runs = 0
-        self.total_reward = 0
-        self.action_distribution = np.zeros(num_augs)
-    
-    def get_control(self):
-        # Sample a reward estimate for each arm from a normal distribution with the estimated mean and variance
-        sampled_values = []
-        for arm in range(self.num_augs):
-            if self.n_pulls[arm] == 0:
-                return arm  # If an arm hasn't been pulled yet, explore it first
-            variance = self.sum_squares[arm] / self.n_pulls[arm] if self.n_pulls[arm] > 1 else 1.0
-            sampled_value = np.random.normal(self.mean_rewards[arm], np.sqrt(variance))
-            sampled_values.append(sampled_value)
-        
-        # Select the arm with the highest sampled value
-        return np.argmax(sampled_values)
-    
-    def update(self, arm, reward):
-        self.n_pulls[arm] += 1
-        old_mean = self.mean_rewards[arm]
-        # Update mean reward using online update formula
-        self.mean_rewards[arm] = old_mean + (reward - old_mean) / self.n_pulls[arm]
-        # Update the sum of squares for variance calculation
-        self.sum_squares[arm] += (reward - old_mean) * (reward - self.mean_rewards[arm])
-        
-        # Update total reward and other metrics
-        self.total_reward += reward
-        self.total_runs += 1
-        self.action_distribution[arm] += 1
-
-    def evaluate(self) -> dict:
-        avg_reward = self.total_reward / self.total_runs if self.total_runs > 0 else 0
-        action_distribution = self.action_distribution / self.total_runs if self.total_runs > 0 else np.zeros(self.num_augs)
-        return {"avg_reward": avg_reward, "action_distribution": action_distribution}
-
-
-class SlidingWindowUCB(MultiArmedBandit):
-    
-    def __init__(self, num_augs, decay_rate=0.99, alpha=2.0, window_size=100):
-        super().__init__(num_augs, decay_rate, alpha)
-        self.window_size = window_size
-        self.rewards_history = [[] for _ in range(num_augs)]  # Track recent rewards per arm
-
-    def update(self, arm, reward):
-        # Maintain a sliding window for rewards
-        if len(self.rewards_history[arm]) >= self.window_size:
-            self.rewards_history[arm].pop(0)  # Remove the oldest reward if window is full
-        self.rewards_history[arm].append(reward)  # Add the new reward
-
-        # Recalculate mean and rewards using only the sliding window
-        recent_rewards = self.rewards_history[arm]
-        self.rewards[arm] = np.mean(recent_rewards)
-        self.n_pulls[arm] = len(recent_rewards)
-        
-        self.total_runs += 1
-        self.total_reward += reward
-        self.action_distribution[arm] += 1
-    
-
-class DiscountedUCB(MultiArmedBandit):
-    
-    def __init__(self, num_augs, alpha=2.0, discount_factor=0.9):
-        super().__init__(num_augs, alpha=alpha)
-        self.discount_factor = discount_factor
-    
-    def update(self, arm, reward):
-        # Apply a discount to the previous rewards
-        self.rewards[arm] = self.discount_factor * self.rewards[arm] + (1 - self.discount_factor) * reward
-        self.n_pulls[arm] += 1
-        self.total_runs += 1
-        self.total_reward += reward
-        self.action_distribution[arm] += 1
-
-
-class LinUCBAugController(AbstractAugController):
-    
-    def __init__(self, num_augs, context_dim, alpha=1.0):
-        super().__init__(num_augs)
-        self.context_dim = context_dim
-        self.alpha = alpha
-        
-        # For each augmentation, we maintain a covariance matrix (d x d) and reward vector (d)
-        self.A = [np.identity(context_dim) for _ in range(num_augs)]
-        self.b = [np.zeros(context_dim) for _ in range(num_augs)]
-        self.total_runs = 0
-        self.n_pulls = np.zeros(num_augs)
-        self.action_distribution = np.zeros(num_augs)
-
-    
-    def get_control(self, context):
-        """
-        Select the augmentation to apply based on the current context.
-        """
-        ucb_values = np.zeros(self.num_augs)
-        
-        for aug in range(self.num_augs):
-            A_inv = np.linalg.inv(self.A[aug])  # Inverse of covariance matrix
-            theta = A_inv @ self.b[aug]         # Estimated reward parameters for the augmentation
-            ucb_values[aug] = theta.T @ context + self.alpha * np.sqrt(context.T @ A_inv @ context)  # UCB Score
-
-        # Return the augmentation with the highest UCB value
-        return np.argmax(ucb_values)
-
-
-    def update(self, chosen_aug, reward, context):
-        """
-        Update the model parameters after receiving the reward for the chosen augmentation.
-        """
-        self.n_pulls[chosen_aug] += 1
-        self.total_runs += 1
-        self.total_reward += reward
-        self.action_distribution[chosen_aug] += 1
-
-        # Update A and b for the chosen augmentation
-        self.A[chosen_aug] += np.outer(context, context)
-        self.b[chosen_aug] += reward * context
-
-
-    def evaluate(self):
-        """
-        Evaluate the average reward and action distribution so far.
-        """
-        avg_reward = self.total_reward / self.total_runs if self.total_runs > 0 else 0
-        action_dist = self.action_distribution / self.total_runs if self.total_runs > 0 else np.zeros(self.num_augs)
-        
-        return {
-            "avg_reward": avg_reward,
-            "action_distribution": action_dist
-        }
-
-
-class MDPController(AbstractAugController):
-    
-    def __init__(self, num_augs, lr=0.1, gamma=0.9, epsilon=0.1):
-        super().__init__(num_augs)
-        self.lr = lr  # Learning rate
-        self.gamma = gamma  # Discount factor for future rewards
-        self.epsilon = epsilon  # Exploration rate
-        
-        # Initialize Q-values for each state-action pair
-        self.Q = np.zeros((num_augs, num_augs))  # Q-table, states are arms, actions are arms
-        self.state = None  # Current state (arm pulled last)
-        self.total_reward = 0
-        self.total_runs = 0
-        self.action_distribution = np.zeros(num_augs)
-
-    def get_control(self):
-        """ Choose an action using epsilon-greedy strategy """
-        if self.state is None:  # If no prior state, choose randomly
-            return np.random.randint(self.num_augs)
-        
-        # Epsilon-greedy policy for exploration vs exploitation
-        if np.random.random() < self.epsilon:
-            # Exploration: Randomly select an action
-            return np.random.randint(self.num_augs)
-        else:
-            # Exploitation: Select the action with the highest Q-value for the current state
-            return np.argmax(self.Q[self.state])
-
-    def update(self, action, reward):
-        """ Update the Q-values based on the action and reward received """
-        if self.state is None:
-            # First update, set the current state to the action taken
-            self.state = action
-            return
-        
-        # Get the best possible Q-value for the new state
-        best_next_q = np.max(self.Q[action])
-        
-        # Q-learning update rule
-        self.Q[self.state, action] = self.Q[self.state, action] + \
-                                     self.lr * (reward + self.gamma * best_next_q - self.Q[self.state, action])
-        
-        # Update internal state and statistics
-        self.state = action
-        self.total_runs += 1
-        self.total_reward += reward
-        self.action_distribution[action] += 1
-
-    def evaluate(self):
-        """ Evaluate the current performance """
-        avg_reward = self.total_reward / self.total_runs if self.total_runs > 0 else 0
-        action_distribution = self.action_distribution / self.total_runs if self.total_runs > 0 else np.zeros(self.num_augs)
-        return {"avg_reward": avg_reward, "action_distribution": action_distribution}
-
-
-
 class ShadowServerWithAugSelection(ShadowServer):
     
     
     def __init__(self, ID=-1, state=0, config=None, data=None, model=None, client_num=5, total_round_num=10, device='cpu', strategy=None, unseen_clients_id=None, **kwargs):
         super().__init__(ID, state, config, data, model, client_num, total_round_num, device, strategy, unseen_clients_id, **kwargs)
+        self.define_comm_content()
         self._get_controller()
+    
+    
+    def define_comm_content(self) -> None:
+        """
+        Aug Controller Might require different Client & Server Feedbacks
+        Here we define the content of communications
+        Sent in call_back_for_model_para
+        """
+        self.server_side_content_keys = ["aug_control", "sample_size", "model_para"]
+        self.client_side_content_keys = ["reward", "sample_size", "model_para"]
         
     
+    def _handle_addtional_feedback_content_for_aug_controller(self, msg_buffer) -> None:
+        
+        """
+        Handles Dynamic Content Size for the Aggregation
+        Requires the content keys to be defined first.
+        """
+         
+        content_length = len(self.client_side_content_keys)
+        ## sample_size and model_para always appears
+        additional_content_num = content_length - 2 
+        
+        ## define dict for additional content placeholders
+        ## utilize only first (additional_content_num) elements
+        additional_contents = {key : [] for key in self.client_side_content_keys[:additional_content_num]}
+        
+        for client_id in msg_buffer.keys():
+            client_additional_contents = list(msg_buffer[client_id])[:additional_content_num]
+            for idx in range(0,len(client_additional_contents)):
+                content_key = self.client_side_content_keys[idx]
+                additional_contents[content_key].append(client_additional_contents[idx])
+        
+        self.additional_contents = additional_contents
+                
+
     def _get_controller(self):
         controller = get_aug_controller(num_augs = self._cfg.data.augmentation_args.aug_types_count,
                                         controller_type = self._cfg.data.augmentation_controller.type,
@@ -569,11 +252,11 @@ class ShadowServerWithAugSelection(ShadowServer):
         
     
     def get_aug_control(self) :
-        """
-        Get the augmentation control
-        """
         arm = self.aug_controller.get_control()
-        logger.info(f"Augmentation Controll : {arm}")
+        if type(arm) == np.array : arm_str = f"Augmentation Control : {arm.tolist()}"
+        else : arm_str = f"Augmentation Control : {arm}"
+        
+        logger.info("{"+arm_str+ "}")
         return arm
     
     
@@ -582,21 +265,24 @@ class ShadowServerWithAugSelection(ShadowServer):
         Evaluate the MAB
         """
         controller_evaluation = self.aug_controller.evaluate()
-        eval_str =  "'Controller Evaluation' : {"
+        eval_str =  "{'Controller Evaluation' : {"
         for key, value in controller_evaluation.items():
             eval_str += f"'{key}' : {value}, "
-        eval_str = eval_str[:-2] + "}"
+        eval_str = eval_str[:-2] + "}}"
         logger.info(eval_str)
     
     
-    def update_aug_controller(self, round_losses : List[float]) -> None :
+    def update_aug_controller(self) -> None :
         """
         Evaluate the training loss and determine
         augmentation should enforce generalization or personalization
         """
         # Evaluate the training loss for each client
         ## default rewards are the negative of the losses
-        reward = -np.mean(round_losses)
+        
+        reward = self.additional_contents['reward']
+        
+        reward = -np.mean(reward)
         self.aug_controller.update(self.aug_controller.get_control(), reward)
         
         ## Evaluate the MAB
@@ -615,39 +301,45 @@ class ShadowServerWithAugSelection(ShadowServer):
             msg_list = list()
             staleness = list()
 
+            self._handle_addtional_feedback_content_for_aug_controller(train_msg_buffer)
             for client_id in train_msg_buffer.keys():
                 if self.model_num == 1:
-                    avg_train_loss, train_data_size, msg_content = train_msg_buffer[client_id]
+                    essentail_contents = list(train_msg_buffer[client_id])[-2:]
+                    train_data_size, msg_content = essentail_contents[0], essentail_contents[1]
+                    
                     msg_list.append((train_data_size, msg_content))
-                    avg_train_loss_list.append(avg_train_loss)
+                    #avg_train_loss_list.append(avg_train_loss)
                 else:
-                    ## Added AvgTrainloss
-                    avg_train_loss, train_data_size, model_para_multiple = \
-                        train_msg_buffer[client_id]
+                    essentail_contents = list(train_msg_buffer[client_id])[-2:]
+                    train_data_size, model_para_multiple = \
+                        essentail_contents[0], essentail_contents[1]
                     msg_list.append(
                         (train_data_size, model_para_multiple[model_idx]))
-                    avg_train_loss_list.append(avg_train_loss)
+                    #avg_train_loss_list.append(avg_train_loss)
                     
                 # The staleness of the messages in train_msg_buffer
                 # should be 0
                 staleness.append((client_id, 0))
 
+            #self._handle_addtional_feedback_content_for_aug_controller(self.staled_msg_buffer)
             for staled_message in self.staled_msg_buffer:
                 state, client_id, content = staled_message
                 if self.model_num == 1:
-                    avg_train_loss, train_data_size, msg_content = content
+                    essentail_contents = list(content)[-2:]
+                    train_data_size, msg_content = essentail_contents[0], essentail_contents[1]
                     msg_list.append((train_data_size, msg_content))
-                    avg_train_loss_list.append(avg_train_loss)
+                    #avg_train_loss_list.append(avg_train_loss)
                 else:
-                    avg_train_loss, train_data_size, model_para_multiple = content
+                    essentail_contents = list(content)[-2:]
+                    train_data_size, msg_content = essentail_contents[0], essentail_contents[1]
                     msg_list.append(
                         (train_data_size, model_para_multiple[model_idx]))
-                    avg_train_loss_list.append(avg_train_loss)
+                    #avg_train_loss_list.append(avg_train_loss)
                     
                 staleness.append((client_id, self.state - state))
 
             ## Aug Controller Update
-            self.update_aug_controller(avg_train_loss_list)
+            self.update_aug_controller()
             
             ## Evaluate the controller
             self.eval_controller()
@@ -740,42 +432,6 @@ class ShadowServerWithAugSelection(ShadowServer):
         if filter_unseen_clients:
             # restore the state of the unseen clients within sampler
             self.sampler.change_state(self.unseen_clients_id, 'seen')
-
-
-class WeightedMultiArmedBandit(AbstractAugController):
-    
-    def __init__(self, num_augs, decay_rate = 0.99, temperature = 1.0):
-        
-        self.num_augs = num_augs
-        self.decay_rate = decay_rate
-        self.temperature = temperature
-        
-        self.weight_records = []
-        self.rewards = np.zeros(num_augs)
-        
-            
-    def get_control(self):
-        """
-        Get the weight of each arm
-        """
-        exp_value = np.exp(self.rewards / self.temperature)
-        weights = exp_value / np.sum(exp_value)
-        return weights
-    
-
-    def update(self, weight, reward):
-        
-        self.weight_records.append(weight)
-        self.rewards = self.decay_rate * self.rewards + (1 - self.decay_rate) * reward
-
-    
-    def evaluate(self) -> dict:
-        
-        avg_reward = self.calculate_average_reward()
-        action_distribution = self.calculate_action_distribution()
-        # cumulative_regret = self.cumulative_regret()
-        
-        return {"Average_Reward" : avg_reward, "Action_Distribution" : action_distribution}
     
 
 class ShadowServerWithWeightedAugSelection(ShadowServerWithAugSelection):
@@ -788,18 +444,20 @@ class ShadowServerWithWeightedAugSelection(ShadowServerWithAugSelection):
         self.aug_controller = controller
         
     
-    def update_aug_controller(self, round_losses : List[float]) -> None:
+    def update_aug_controller(self) -> None:
         """
         To minimize the train losses received from the clients
         Find the best weights for the augmentations
         BlackBox Optimization
         """
-        userd_weights = self.aug_controller.get_control()
+        reward = self.additional_contents['reward']
+        
+        used_weights = self.aug_controller.get_control()
         
         ## average the round losses and give it a negative sign
         ## as the reward is the negative of the loss
-        reward = -np.mean(round_losses)
-        self.aug_controller.update(userd_weights, reward) 
+        reward = -np.mean(reward)
+        self.aug_controller.update(used_weights, reward) 
     
     
     def get_aug_control(self) :
@@ -810,111 +468,6 @@ class ShadowServerWithWeightedAugSelection(ShadowServerWithAugSelection):
         logger.info(f"Augmentation Controll : {weight}")
         return weight
 
-
-class AutoAug(AbstractAugController):
-    
-    def __init__(self, num_augs, decay_rate = 0.99, temperature = 1.0):
-        
-        self.num_augs = num_augs
-        self.decay_rate = decay_rate
-        self.temperature = temperature
-        
-        self.weight_records = []
-        self.rewards = np.zeros(num_augs)
-
-import torch
-class AugSearcher(torch.nn.Module):
-    
-    """
-    inspired by the 
-    AutoAugment : Learning Augmentation Strategies from Data (Cubuk et al., 2019)
-    Updates the augmentation policy based on, validation results
-    
-    One Layer LSTM with Softmax Activation
-    """
-    
-    def __init__(self, num_arms, hidden_size = 128):
-        super(AugSearcher, self).__init__()
-        self.num_arms = num_arms
-        self.lstm = torch.nn.LSTM(1, hidden_size, batch_first = True)
-        self.fc1 = torch.nn.Linear(hidden_size, num_arms)
-        
-        
-    def forward(self, x, hidden = None):
-        """
-        Forward pass for the AugSearcher model.
-        
-        Args:
-        - x (torch.Tensor): Input reward sequence of shape (batch_size, seq_len, 1)
-        - hidden (tuple): Hidden states for LSTM (optional)
-        
-        Returns:
-        - probs (torch.Tensor): Output probabilities for choosing each augmentation
-        - hidden (tuple): Updated hidden state
-        """
-        
-        # LSTM forward pass
-        lstm_out, hidden = self.lstm(x, hidden)
-        
-        # Get the hidden state from the last time step (sequence length is assumed > 0)
-        lstm_out_last = lstm_out[:, -1, :]
-        
-        # Pass through the fully connected layer to get raw logits for each augmentation
-        logits = self.fc(lstm_out_last)
-        
-        # Apply softmax to get probabilities over augmentations (arms)
-        probs = torch.nn.functional.softmax(logits, dim=-1)
-        
-        return probs, hidden
-    
-
-class AutoAugController(AbstractAugController):
-    
-    def __init__(self, num_augs, device = 'cpu'):
-        self.num_augs = num_augs
-        self.policy = AugSearcher(num_augs)
-        self.device = device
-        self.optimizer = torch.optim.Adam(self.policy.parameters())
-
-        self.total_reward = 0
-        self.total_runs = 0
-        self.reward_history = []
-        
-        self.last_control = None
-        self.control_history = []
-        
-        self.last_hidden = None
-        self.hidden_history = []
-        
-        
-    def get_control(self):
-        control, hidden = self.policy(torch.tensor([self.total_reward], device = self.device).unsqueeze(0), self.last_hidden)
-        
-        self.last_control = control
-        self.control_history.append(control)
-        
-        self.last_hidden = hidden
-        self.hidden_history.append(hidden)        
-        
-        return control
-    
-    
-    def update(self, reward : np.ndarray) -> None:
-        ## Update every time when a new reward is received
-        
-        self.total_reward += reward
-        self.total_runs += 1
-        
-        self.reward_history.append(reward)
-        
-        last_reward = torch.tensor([reward], device = self.device).unsqueeze(0)
-        self.optimizer.zero_grad()
-        control, hidden = self.policy(last_reward, self.last_hidden)
-        
-        ## TODO ! : Implement the loss function
-        
-        
-        
 
 
 class ShadowClient(Client):
@@ -976,7 +529,7 @@ class ShadowClient(Client):
     
 class ShadowClientWithAugSelection(ShadowClient):
     
-        
+    
     def _from_df_get_user_full_sequences(self, user_id_value, df):
         
         user_df = df[df[self._cfg.data.user_column] == user_id_value]
@@ -1028,206 +581,50 @@ class ShadowClientWithAugSelection(ShadowClient):
     
     
     def _from_flag_get_train_data(self, flag):
-        ## previous pervion where we measured the cosine similarity
-        #selected_aug_idx = self._select_training_set(flag)
-        #selected_train_data = self._from_aug_idx_get_train_data(selected_aug_idx)
-        #augmentation_type = "personalized" if flag else "generalized"
-        #logger.info(f"Selected the most {augmentation_type} augmentation set for training")
-        
-        ## flag is aug_idx
         selected_train_data = self._from_aug_idx_get_train_data(flag)
         
         return selected_train_data
     
     
-    def callback_funcs_for_model_para(self, message: Message):
+    def handle_aug_controls(self, message : Message) -> None:
+        ## refer to the callback_funcs_for_model_para in the server
+        flag, content = message.content 
+        # dequantization
+        selected_train_data = self._from_flag_get_train_data(flag) 
+        
+        self.original_train_data = self.trainer.ctx.data['train']
+        data = self.trainer.ctx.data
+        data['train'] = selected_train_data
+        self.update_shadow_client(data, self.ID)
+        
+    
+    def restore_original_train_data(self) -> None:
+        data = self.trainer.ctx.data
+        data['train'] = self.original_train_data
+        self.update_shadow_client(data, self.ID)
+    
+    
+    def get_reward_from_results(self, results) -> any:
         """
-        The handling function for receiving model parameters, \
-        which triggers the local training process. \
-        This handling function is widely used in various FL courses.
-
-        Arguments:
-            message: The received message
+        Get the reward from the results
         """
-        original_id = self.ID
-        self.ID = self.shadow_client_id
-        if 'ss' in message.msg_type:
-            # A fragment of the shared secret
-            state, content, timestamp = message.state, message.content, \
-                                        message.timestamp
-            ## refer to the callback_funcs_for_model_para in the server
-            flag, content = content 
-            selected_train_data = self._from_flag_get_train_data(flag) 
-            
-            original_train_data = self.trainer.ctx.data['train']
-            temp_data = self.trainer.ctx.data
-            temp_data['train'] = selected_train_data
-            self.update_shadow_client(temp_data, self.ID)
-            
-            self.msg_buffer['train'][state].append(content)
-
-            if len(self.msg_buffer['train']
-                   [state]) == self._cfg.federate.client_num:
-                # Check whether the received fragments are enough
-                model_list = self.msg_buffer['train'][state]
-                sample_size, first_aggregate_model_para = model_list[0]
-                single_model_case = True
-                if isinstance(first_aggregate_model_para, list):
-                    assert isinstance(first_aggregate_model_para[0], dict), \
-                        "aggregate_model_para should a list of multiple " \
-                        "state_dict for multiple models"
-                    single_model_case = False
-                else:
-                    assert isinstance(first_aggregate_model_para, dict), \
-                        "aggregate_model_para should " \
-                        "a state_dict for single model case"
-                    first_aggregate_model_para = [first_aggregate_model_para]
-                    model_list = [[model] for model in model_list]
-
-                for sub_model_idx, aggregate_single_model_para in enumerate(
-                        first_aggregate_model_para):
-                    for key in aggregate_single_model_para:
-                        for i in range(1, len(model_list)):
-                            aggregate_single_model_para[key] += model_list[i][
-                                sub_model_idx][key]
-
-                self.comm_manager.send(
-                    Message(msg_type='model_para',
-                            sender=self.ID,
-                            receiver=[self.server_id],
-                            state=self.state,
-                            timestamp=timestamp,
-                            content=(avg_train_loss, sample_size, first_aggregate_model_para[0]
-                                     if single_model_case else
-                                     first_aggregate_model_para)))
-            ## restore the original train data
-            temp_data['train'] = original_train_data
-            self.update_shadow_client(temp_data, self.ID)
-        else:
-            round = message.state
-            sender = message.sender
-            timestamp = message.timestamp
-            content = message.content
-
-            ## refer to the callback_funcs_for_model_para in the server
-            flag, content = content 
-            # dequantization
-            selected_train_data = self._from_flag_get_train_data(flag) 
-            
-            original_train_data = self.trainer.ctx.data['train']
-            temp_data = self.trainer.ctx.data
-            temp_data['train'] = selected_train_data
-            self.update_shadow_client(temp_data, self.ID)
-            
-            if self._cfg.quantization.method == 'uniform':
-                from federatedscope.core.compression import \
-                    symmetric_uniform_dequantization
-                if isinstance(content, list):  # multiple model
-                    content = [
-                        symmetric_uniform_dequantization(x) for x in content
-                    ]
-                else:
-                    content = symmetric_uniform_dequantization(content)
-
-            # When clients share the local model, we must set strict=True to
-            # ensure all the model params (which might be updated by other
-            # clients in the previous local training process) are overwritten
-            # and synchronized with the received model
-            if self._cfg.federate.process_num > 1:
-                for k, v in content.items():
-                    content[k] = v.to(self.device)
-            self.trainer.update(content,
-                                strict=self._cfg.federate.share_local_model)
-            self.state = round
-            skip_train_isolated_or_global_mode = \
-                self.early_stopper.early_stopped and \
-                self._cfg.federate.method in ["local", "global"]
-            
-            if self.is_unseen_client or skip_train_isolated_or_global_mode:
-                # for these cases (1) unseen client (2) isolated_global_mode,
-                # we do not local train and upload local model
-                avg_train_loss, sample_size, model_para_all, results = \
-                    None, 0, self.trainer.get_model_para(), {}
-                if skip_train_isolated_or_global_mode:
-                    logger.info(
-                        f"[Local/Global mode] Client #{self.ID} has been "
-                        f"early stopped, we will skip the local training")
-                    self._monitor.local_converged()
-            else:
-                if self.early_stopper.early_stopped and \
-                        self._monitor.local_convergence_round == 0:
-                    logger.info(
-                        f"[Normal FL Mode] Client #{self.ID} has been locally "
-                        f"early stopped. "
-                        f"The next FL update may result in negative effect")
-                    self._monitor.local_converged()
-                sample_size, model_para_all, results = self.trainer.train()
-                avg_train_loss = results["train_avg_loss"]
-                if self._cfg.federate.share_local_model and not \
-                        self._cfg.federate.online_aggr:
-                    model_para_all = copy.deepcopy(model_para_all)
-                train_log_res = self._monitor.format_eval_res(
-                    results,
-                    rnd=self.state,
-                    role='Client #{}'.format(self.ID),
-                    return_raw=True)
-                logger.info(train_log_res)
-                if self._cfg.wandb.use and self._cfg.wandb.client_train_info:
-                    self._monitor.save_formatted_results(train_log_res,
-                                                         save_file_name="")
-
-            ## restore the original train data
-            temp_data['train'] = original_train_data
-            self.update_shadow_client(temp_data, self.ID)
-            # Return the feedbacks to the server after local update
-            if self._cfg.federate.use_ss:
-                raise NotImplementedError(
-                    "Secret sharing is not supported in the "
-                    "ShadowClientWithAugSelection")
-            else:
-                if self._cfg.asyn.use or self._cfg.aggregator.robust_rule in \
-                        ['krum', 'normbounding', 'median', 'trimmedmean',
-                         'bulyan']:
-                    # Return the model delta when using asynchronous training
-                    # protocol, because the staled updated might be discounted
-                    # and cause that the sum of the aggregated weights might
-                    # not be equal to 1
-                    shared_model_para = self._calculate_model_delta(
-                        init_model=content, updated_model=model_para_all)
-                else:
-                    shared_model_para = model_para_all
-
-                # quantization
-                if self._cfg.quantization.method == 'uniform':
-                    from federatedscope.core.compression import \
-                        symmetric_uniform_quantization
-                    nbits = self._cfg.quantization.nbits
-                    if isinstance(shared_model_para, list):
-                        shared_model_para = [
-                            symmetric_uniform_quantization(x, nbits)
-                            for x in shared_model_para
-                        ]
-                    else:
-                        shared_model_para = symmetric_uniform_quantization(
-                            shared_model_para, nbits)
-                self.comm_manager.send(
-                    Message(msg_type='model_para',
-                            sender=self.ID,
-                            receiver=[sender],
-                            state=self.state,
-                            timestamp=self._gen_timestamp(
-                                init_timestamp=timestamp,
-                                instance_number=sample_size),
-                            content=(avg_train_loss, sample_size, shared_model_para)))
-            self.ID = original_id
-
-
-
-class ShadowClientWithAugSelectionValidVer(ShadowClientWithAugSelection):
-    """
-    Instead of communicating train losses
-    It communicates Valid Losses
-    """
+        try :
+            reward_key = self._cfg.data.augmentation_controller.args.reward_type
+        except KeyError:
+            raise KeyError("reward_type is not defined in the config")
+            #reward_key = "train_avg_loss"
+        try :
+            reward = results[reward_key]
+        except KeyError:
+            reward = 0
+        return reward
+    
+    
+    def formulate_sending_content(self, received_message, shared_model_para, sample_size, results) -> set:
+        
+        reward = self.get_reward_from_results(results)
+        return (reward, sample_size, shared_model_para)
+        
     
     def callback_funcs_for_model_para(self, message: Message):
         """
@@ -1246,12 +643,7 @@ class ShadowClientWithAugSelectionValidVer(ShadowClientWithAugSelection):
                                         message.timestamp
             ## refer to the callback_funcs_for_model_para in the server
             flag, content = content 
-            selected_train_data = self._from_flag_get_train_data(flag) 
-            
-            original_train_data = self.trainer.ctx.data['train']
-            temp_data = self.trainer.ctx.data
-            temp_data['train'] = selected_train_data
-            self.update_shadow_client(temp_data, self.ID)
+            self.handle_aug_controls(message)
             
             self.msg_buffer['train'][state].append(content)
 
@@ -1286,12 +678,11 @@ class ShadowClientWithAugSelectionValidVer(ShadowClientWithAugSelection):
                             receiver=[self.server_id],
                             state=self.state,
                             timestamp=timestamp,
-                            content=(avg_train_loss, sample_size, first_aggregate_model_para[0]
+                            content=(None, sample_size, first_aggregate_model_para[0]
                                      if single_model_case else
                                      first_aggregate_model_para)))
             ## restore the original train data
-            temp_data['train'] = original_train_data
-            self.update_shadow_client(temp_data, self.ID)
+            self.restore_original_train_data()
         else:
             round = message.state
             sender = message.sender
@@ -1300,14 +691,9 @@ class ShadowClientWithAugSelectionValidVer(ShadowClientWithAugSelection):
 
             ## refer to the callback_funcs_for_model_para in the server
             flag, content = content 
+            self.handle_aug_controls(message)
+            
             # dequantization
-            selected_train_data = self._from_flag_get_train_data(flag) 
-            
-            original_train_data = self.trainer.ctx.data['train']
-            temp_data = self.trainer.ctx.data
-            temp_data['train'] = selected_train_data
-            self.update_shadow_client(temp_data, self.ID)
-            
             if self._cfg.quantization.method == 'uniform':
                 from federatedscope.core.compression import \
                     symmetric_uniform_dequantization
@@ -1335,8 +721,8 @@ class ShadowClientWithAugSelectionValidVer(ShadowClientWithAugSelection):
             if self.is_unseen_client or skip_train_isolated_or_global_mode:
                 # for these cases (1) unseen client (2) isolated_global_mode,
                 # we do not local train and upload local model
-                avg_train_loss, sample_size, model_para_all, results = \
-                    None, 0, self.trainer.get_model_para(), {}
+                sample_size, model_para_all, results = \
+                    0, self.trainer.get_model_para(), {}
                 if skip_train_isolated_or_global_mode:
                     logger.info(
                         f"[Local/Global mode] Client #{self.ID} has been "
@@ -1351,7 +737,6 @@ class ShadowClientWithAugSelectionValidVer(ShadowClientWithAugSelection):
                         f"The next FL update may result in negative effect")
                     self._monitor.local_converged()
                 sample_size, model_para_all, results = self.trainer.train()
-                avg_train_loss = results["val_avg_loss"]
                 if self._cfg.federate.share_local_model and not \
                         self._cfg.federate.online_aggr:
                     model_para_all = copy.deepcopy(model_para_all)
@@ -1366,8 +751,7 @@ class ShadowClientWithAugSelectionValidVer(ShadowClientWithAugSelection):
                                                          save_file_name="")
 
             ## restore the original train data
-            temp_data['train'] = original_train_data
-            self.update_shadow_client(temp_data, self.ID)
+            self.restore_original_train_data()
             # Return the feedbacks to the server after local update
             if self._cfg.federate.use_ss:
                 raise NotImplementedError(
@@ -1407,8 +791,50 @@ class ShadowClientWithAugSelectionValidVer(ShadowClientWithAugSelection):
                             timestamp=self._gen_timestamp(
                                 init_timestamp=timestamp,
                                 instance_number=sample_size),
-                            content=(avg_train_loss, sample_size, shared_model_para)))
+                            content=self.formulate_sending_content(
+                                received_message = message,
+                                shared_model_para=shared_model_para,
+                                sample_size = sample_size,
+                                results=results)))
             self.ID = original_id
+
+
+
+class ShadowServerWithFedEx(ShadowServerWithAugSelection):
+    
+    """
+    A weighted sampling control
+    Also Receives Client Side Aug Configurations
+    """
+    def define_comm_content(self) -> None:
+        """
+        added client side content keys
+        """
+        self.server_side_content_keys = ["aug_control", "sample_size", "model_para"]
+        self.client_side_content_keys = ["aug_control", "reward", "sample_size", "model_para"]
+    
+    def update_aug_controller(self) -> None:
+        reward = self.additional_contents['reward']
+        client_side_aug_control = self.additional_contents['aug_control']
+        
+        ## concat the controls
+        control_vector = np.stack(client_side_aug_control)
+        reward = -np.array(reward)
+
+        self.aug_controller.update(reward, control_vector)
+        
+        ## Evaluate the MAB
+        controller_evaluation = self.aug_controller.evaluate()
+
+
+class ShadowServerWithWeightedFedEx(ShadowServerWithFedEx):
+    
+    def _get_controller(self):
+        controller = get_aug_controller(num_augs = self._cfg.data.augmentation_args.aug_types_count,
+                                        controller_type = self._cfg.data.augmentation_controller.type,
+                                        controller_args = self._cfg.data.augmentation_controller.args, 
+                                        is_weighted = True)
+        self.aug_controller = controller
 
 
 class ShadowClientWithWeightedAugSelection(ShadowClientWithAugSelection):
@@ -1452,8 +878,82 @@ class ShadowClientWithWeightedAugSelection(ShadowClientWithAugSelection):
                                                      shuffle=True)
         
         return new_train_data
+
+
+class ShadowClientWithFedEx(ShadowClientWithAugSelection):
+    """
+    The clients perturbs the sampling distribution
+    Reports the perturbed distribution and valid Loss
+    """ 
+    
+    def set_perturb_given_flag(self, flag):
+        self.perturbed_flag = flag
         
+    
+    
+    def handle_aug_controls(self, message: Message) -> None:
+        ## refer to the callback_funcs_for_model_para in the server
+        flag, content = message.content 
         
+        self.set_perturb_given_flag(flag)
+        selected_train_data = self._from_flag_get_train_data(self.perturbed_flag) 
+        
+        self.original_train_data = self.trainer.ctx.data['train']
+        data = self.trainer.ctx.data
+        data['train'] = selected_train_data
+        self.update_shadow_client(data, self.ID)
+    
+    
+    def formulate_sending_content(self, received_message, shared_model_para, sample_size, results) -> set:
+        ## content includes val_loss and perturebed flag.
+        reward = self.get_reward_from_results(results)
+        return (self.perturbed_flag, reward, sample_size, shared_model_para)
+
+
+class ShadowClientWithFedExWeighted(ShadowClientWithWeightedAugSelection):
+    
+    
+    def __init__(self, ID=-1, server_id=None, state=-1, config=None, data=None, model=None, device='cpu', strategy=None, is_unseen_client=False, *args, **kwargs):
+        super().__init__(ID, server_id, state, config, data, model, device, strategy, is_unseen_client, *args, **kwargs)
+        self.max_addative_noise = self._cfg.data.augmentation_controller.args.max_addative_noise
+        
+    
+    def _softmax(self, x):
+        return np.exp(x) / np.sum(np.exp(x), axis=0)
+    
+    
+    def set_perturb_given_flag(self, flag):
+        ## addative noise
+        random_noise = np.random.normal(0, self.max_addative_noise, len(flag))
+        perturbed_flag = self._softmax(flag + random_noise)
+        
+        self.perturbed_flag = perturbed_flag
+        
+    
+    def handle_aug_controls(self, message: Message) -> None:
+        ## refer to the callback_funcs_for_model_para in the server
+        flag, content = message.content 
+        
+        self.set_perturb_given_flag(flag)
+        selected_train_data = self._from_flag_get_train_data(self.perturbed_flag) 
+        
+        self.original_train_data = self.trainer.ctx.data['train']
+        data = self.trainer.ctx.data
+        data['train'] = selected_train_data
+        self.update_shadow_client(data, self.ID)
+    
+    
+    def formulate_sending_content(self, received_message, shared_model_para, sample_size, results) -> set:
+        ## content includes val_loss and perturebed flag.
+        reward = self.get_reward_from_results(results)
+        return (self.perturbed_flag, reward, sample_size, shared_model_para)
+
+
+class ShadowClientWithDirichletSampling(ShadowClientWithFedExWeighted):
+    
+    
+    def set_perturb_given_flag(self, flag):
+        self.perturbed_flag = np.random.dirichlet(flag)
 
     
 def call_shadow_server(method):
@@ -1471,14 +971,25 @@ def call_shadow_with_weighted_aug_selection(method):
         worker_builder = {'server': ShadowServerWithWeightedAugSelection, 'client': ShadowClientWithWeightedAugSelection}
         return worker_builder
 
+def call_shadow_with_fedex(method):
+    if method == 'shadow_with_fedex':
+        worker_builder = {'server': ShadowServerWithFedEx, 'client': ShadowClientWithFedEx}
+        return worker_builder
 
-def call_shadow_with_MAP_VALID(method):
-    if method == 'shadow_with_map_valid':
-        worker_builder = {'server': ShadowServerWithAugSelection, 'client': ShadowClientWithAugSelectionValidVer}
+def call_shadow_with_fedex_weighted(method):
+    if method == 'shadow_with_fedex_weighted':
+        worker_builder = {'server': ShadowServerWithWeightedFedEx, 'client': ShadowClientWithFedExWeighted}
+        return worker_builder
+
+def call_shadow_with_weighted_dirichlet(method):
+    if method == 'shadow_with_weighted_dirichlet':
+        worker_builder = {'server': ShadowServerWithWeightedFedEx, 'client': ShadowClientWithDirichletSampling}
         return worker_builder
 
 
 register_worker('shadow', call_shadow_server)
 register_worker('shadow_with_aug_selection', call_shadow_with_aug_selection)
-register_worker('shadow_with_map_valid', call_shadow_with_MAP_VALID)
 register_worker('shadow_with_weighted_aug_selection', call_shadow_with_weighted_aug_selection)
+register_worker('shadow_with_fedex', call_shadow_with_fedex)
+register_worker('shadow_with_fedex_weighted', call_shadow_with_fedex_weighted)
+register_worker('shadow_with_weighted_dirichlet', call_shadow_with_weighted_dirichlet)

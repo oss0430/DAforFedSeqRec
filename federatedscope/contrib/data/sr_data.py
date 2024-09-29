@@ -3,7 +3,7 @@ import numpy as np
 import logging
 import torch
 import pandas as pd
-from tqdm import tqdm
+
 from typing import List, Tuple, Dict, Any, Optional
 
 from federatedscope.core.data import BaseDataTranslator
@@ -148,7 +148,7 @@ class SequentialRecommendationTrainset(torch.utils.data.Dataset):
         range_starts = self.listed_range[:-1]
         range_ends = self.listed_range[1:]
         
-        for start, end in tqdm(zip(range_starts, range_ends), total=len(range_starts)):
+        for start, end in zip(range_starts, range_ends):
             subset_range.append(range(start, end))
         
         return subset_range

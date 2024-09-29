@@ -56,6 +56,9 @@ def extend_cfg_for_sasrec_ml1m(cfg) :
     cfg.data.augmentation_controller.args.window_size = 100
     cfg.data.augmentation_controller.args.lr = 0.01
     cfg.data.augmentation_controller.args.gamma = 0.9
+    cfg.data.augmentation_controller.args.max_addative_noise = 0.1
+    cfg.data.augmentation_controller.args.perturbation_num = 100
+    cfg.data.augmentation_controller.args.reward_type = "train_avg_loss" ## 'train_avg_loss' or 'val_avg_loss' what ever the key from result of trianing
     
     cfg.data.partitioned_df_path = '../../../../data1/donghoon/FederatedScopeData/ml-1m/split'
     cfg.data.save_partitioned_df_path = '../../../../data1/donghoon/FederatedScopeData/ml-1m/split'
