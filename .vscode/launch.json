@@ -36,9 +36,6 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args" : [
-                "--cfg", "run_configs/augmentation_test/ML-1M_cut_sequence/shadow-ml-1m_sasrec_augmentation_right_10_ce_lr_1e-4_debugging.yaml"
-            ]
         }
     ]
 }

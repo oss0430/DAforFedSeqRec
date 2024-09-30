@@ -7,7 +7,7 @@ from typing import List, Dict, Tuple
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_path', type=str, default= '../../../../data1/donghoon/FederatedScopeData/ml-1m/ml-1m.csv')
+parser.add_argument('--data_path', type=str, default= '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/split backup/test.csv')
                     #required=True)
 parser.add_argument('--user_column', type=str, default='user_id:token')
 parser.add_argument('--item_column', type=str, default='item_id:token')
@@ -104,7 +104,7 @@ if __name__ == '__main__' :
     
     result = ''
     
-    data = pd.read_csv(args.data_path, header = 0, sep = '\t')
+    data = pd.read_csv(args.data_path, header = 0, sep = ',')
     item_id_counts = order_item_id_by_frequency(
         df = data,
         item_id_col = args.item_column

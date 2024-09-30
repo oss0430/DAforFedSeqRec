@@ -10,7 +10,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/0927_Weighted_Augmentation_Selection_RS.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/step_10_0930_Weighted_Augmentation_Selection_RS.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 22363
