@@ -632,8 +632,8 @@ class GaussianProcess:
         sigma = np.sqrt(sigma)
         
         with np.errstate(divide='ignore'):
-            Z = (y_best - mu) / sigma
-            ei = (y_best - mu) * norm.cdf(Z) + sigma * norm.pdf(Z)
+            Z = (mu - y_best) / sigma
+            ei = (mu - y_best) * norm.cdf(Z) + sigma * norm.pdf(Z)
             ei[sigma == 0.0] = 0.0
         
         return ei
@@ -674,6 +674,9 @@ class BayesianOptimizationController(AbstractWeightedAugController):
         ## best performing weight
         ## Too slow after several concatenation, use sliding window
         
+        ## note that rewards all all negative
+        ## thus the maximum reward is 0
+        
         addative_noise = np.random.normal(0, self.max_addative_noise, (self.num_augs, self.perturbation_num))
         ## (num_augs, perturbation_num) + (num_augs, 1)
         perturbed_weights = self.weights + addative_noise.T
@@ -687,6 +690,7 @@ class BayesianOptimizationController(AbstractWeightedAugController):
         
         ## Check EI for each perturbed weights and select the best
         ei = self.gp.expected_improvement(perturbed_weights, self.best_reward)
+        ## since all rewards are negative, the best reward is 0
         best_idx = np.argmax(ei)
         
         self.weights = perturbed_weights[best_idx]
