@@ -26,7 +26,7 @@
             "program" : "main.py",
             "console" : "integratedTerminal",
             "args" : [
-                "--cfg", "run_configs/aug_select_org_removed/Amazon_Beauty_Debug.yaml"
+                "--cfg", "run_configs/unseen_user/Debug_ml-1m_unseen_5e-1.yaml"
             ]
         },
         {
