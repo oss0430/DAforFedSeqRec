@@ -43,7 +43,7 @@ data:
                 '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/shuffle_no_original'
                 ]
   augmentation_controller :
-    type : 'dirichlet_prior' ## 'mab', 'epsilon_greedy', 'thompson', 'sliding_window', 'mdp'
+    type : 'bayesian_optimization' ## 'mab', 'epsilon_greedy', 'thompson', 'sliding_window', 'mdp'
     args : 
       decay_rate : 0.99
       alpha : 2.0

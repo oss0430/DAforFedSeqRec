@@ -1,5 +1,5 @@
 use_gpu: True
-device: 0
+device: 1
 early_stop:
   patience: 1000
 federate:
@@ -10,7 +10,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/0905_random_pushing.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/1001_random_pushing.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 6040
@@ -21,9 +21,12 @@ data:
   type: sr_data
   consistent_label_distribution: False ## This can be only used when the datasets are sorted by user_ids
   splitter : sr_splitter
-  augmentation_column : 'augmentation_idx:token'
-  use_augmentation : True
-  max_augmentation_idx : 10 ## 1 + 10 augmentations
+  augmentation_args :
+    augmentation_column : 'augmentation_idx:token'
+    use_augmentation : True
+    max_augmentation_idx : 10 ## load all augmentations
+    is_zero_original : True
+    is_multiple : False
 dataloader :
   type : base
   batch_size : 1

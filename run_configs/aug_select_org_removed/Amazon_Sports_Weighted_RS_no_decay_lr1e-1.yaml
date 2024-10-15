@@ -10,7 +10,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/0927_Weighted_Augmentation_Selection_RS.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/0930_Weighted_Augmentation_Selection_RS_lr1-e1_no_decay.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 35598
@@ -49,7 +49,7 @@ data:
       alpha : 2.0
       epsilon : 0.1
       window_size : 100
-      lr : 0.01
+      lr : 0.1
       gamma : 0.9
       max_addative_noise : 0.1 ## Random Search
       perturbation_num : 100 ## Gaussian Process

@@ -10,7 +10,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/0927_Weighted_Augmentation_Selection_Bayesian.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/1003_Weighted_Augmentation_Selection_Bayesian.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 6040

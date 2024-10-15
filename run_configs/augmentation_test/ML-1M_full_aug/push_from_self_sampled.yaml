@@ -1,5 +1,5 @@
 use_gpu: True
-device: 0
+device: 1
 early_stop:
   patience: 1000
 federate:
@@ -10,7 +10,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/0905_push_self_smapled.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/1001_push_self_smapled.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 6040
