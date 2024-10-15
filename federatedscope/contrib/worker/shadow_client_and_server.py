@@ -6,6 +6,7 @@ import sys
 import numpy as np
 import pickle
 import time
+from torch.utils.data import Subset
 
 from typing import List
 
@@ -14,7 +15,10 @@ from federatedscope.register import register_worker
 from federatedscope.core.message import Message
 from federatedscope.core.workers import Server, Client
 from federatedscope.core.auxiliaries.sampler_builder import get_sampler
-from federatedscope.core.auxiliaries.utils import merge_param_dict
+from federatedscope.core.auxiliaries.utils import merge_dict_of_results, \
+    Timeout, merge_param_dict
+from federatedscope.core.data.base_data import ClientData
+from federatedscope.core.auxiliaries.trainer_builder import get_trainer
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -44,7 +48,139 @@ class ShadowServer(Server):
                 client_info= None)
         else:
             self.sampler = None
+        
+        self.seen_data_indices = kwargs.get('seen_data_indices', [])
+        self.unseen_data_indices = kwargs.get('unseen_data_indices', [])
+        if len(self.unseen_data_indices) > 0 and self._cfg.federate.make_global_eval:
+            self._init_seen_and_unseen_data()
     
+    
+    def _init_seen_and_unseen_data(self):
+        
+        unseen_data = ClientData(
+            self._cfg,
+            train=Subset(self.data['train'].dataset,
+                         self.unseen_data_indices['train']),
+            test=Subset(self.data['test'].dataset,
+                        self.unseen_data_indices['test']),
+            val=Subset(self.data['val'].dataset,
+                           self.unseen_data_indices['val'])    
+        )
+        seen_data = ClientData(
+            self._cfg,
+            train=Subset(self.data['train'].dataset,
+                            self.seen_data_indices['train']),
+            test=Subset(self.data['test'].dataset,
+                            self.seen_data_indices['test']),
+            val=Subset(self.data['val'].dataset,
+                            self.seen_data_indices['val'])
+        )
+        self.seen_and_unseen_data = {
+            'seen': seen_data,
+            'unseen': unseen_data
+        }
+        
+        self.seen_and_unseen_trainer = {
+            'seen' : get_trainer(
+                model= self.models[0],
+                data= self.seen_and_unseen_data['seen'],
+                device= self.device,
+                config= self._cfg,
+                only_for_eval=True,
+                monitor=self._monitor
+            ),
+            'unseen' : get_trainer(
+                model= self.models[0],
+                data= self.seen_and_unseen_data['unseen'],
+                device= self.device,
+                config= self._cfg,
+                only_for_eval=True,
+                monitor=self._monitor
+            )
+        }
+
+
+    def eval_seen_and_unseen(self):
+        metrics = {}
+        for split in self._cfg.eval.split:
+            eval_metrics_seen = self.seen_and_unseen_trainer['seen'].evaluate(
+                target_data_split_name = split
+            )
+            eval_metric_unseen = self.seen_and_unseen_trainer['unseen'].evaluate(
+                target_data_split_name = split
+            )
+            for key in eval_metrics_seen.keys():
+                metrics.update({f'{key}_seen': eval_metrics_seen[key]})
+                metrics.update({f'{key}_unseen': eval_metric_unseen[key]})
+            ## add the merged_metrics
+            ## only avialble for sequential recommendation
+            metrics_seen_count = metrics.get(f'{split}_total_seen', 0)
+            metrics_unseen_count = metrics.get(f'{split}_total_unseen', 0)
+            metrics_total_count = metrics_seen_count + metrics_unseen_count
+            for metrics_buildin in self._monitor.metric_calculator.eval_metric.keys():
+                sum_metrics = metrics[f'{split}_{metrics_buildin}_seen'] * metrics_seen_count + \
+                    metrics[f'{split}_{metrics_buildin}_unseen'] * metrics_unseen_count
+                metrics[f'{split}_{metrics_buildin}'] = \
+                    sum_metrics / metrics_total_count                    
+            metrics[f'{split}_total'] = metrics_total_count
+        formatted_eval_res = self._monitor.format_eval_res(
+                metrics,
+                rnd=self.state,
+                role='Server #',
+                forms=self._cfg.eval.report,
+                return_raw=self._cfg.federate.make_global_eval)
+        self._monitor.update_best_result(
+            self.best_results,
+            formatted_eval_res['Results_raw'],
+            results_type="server_global_eval")
+        self.history_results = merge_dict_of_results(
+            self.history_results, formatted_eval_res)
+        self._monitor.save_formatted_results(formatted_eval_res)
+        logger.info(formatted_eval_res)
+        
+        
+    def eval(self):
+        """
+        To conduct evaluation. When ``cfg.federate.make_global_eval=True``, \
+        a global evaluation is conducted by the server.
+        """
+        split_eval_seen_and_unseen = True
+        if self._cfg.federate.make_global_eval:
+            # By default, the evaluation is conducted one-by-one for all
+            # internal models;
+            # for other cases such as ensemble, override the eval function
+            if split_eval_seen_and_unseen :
+                  self.eval_seen_and_unseen()
+                  self.check_and_save()
+            else :
+                for i in range(self.model_num):
+                    trainer = self.trainers[i]
+                    # Preform evaluation in server
+                    metrics = {}
+                    for split in self._cfg.eval.split:
+                        eval_metrics = trainer.evaluate(
+                            target_data_split_name=split)
+                        metrics.update(**eval_metrics)
+                    formatted_eval_res = self._monitor.format_eval_res(
+                        metrics,
+                        rnd=self.state,
+                        role='Server #',
+                        forms=self._cfg.eval.report,
+                        return_raw=self._cfg.federate.make_global_eval)
+                    self._monitor.update_best_result(
+                        self.best_results,
+                        formatted_eval_res['Results_raw'],
+                        results_type="server_global_eval")
+                    self.history_results = merge_dict_of_results(
+                        self.history_results, formatted_eval_res)
+                    self._monitor.save_formatted_results(formatted_eval_res)
+                    logger.info(formatted_eval_res)
+                self.check_and_save()
+        else:
+            # Preform evaluation in clients
+            self.broadcast_model_para(msg_type='evaluate',
+                                      sample_client_num=-1, ##broadcast to all clients when evaluating locally
+                                      filter_unseen_clients=False)
     
     def trigger_for_start(self):
         """
@@ -484,6 +620,9 @@ class ShadowClient(Client):
                  is_unseen_client=False,
                  *args,
                  **kwargs):
+        ## In proxy clients there is no need for unseen clients
+        ## relies on server side unseen client masking
+        is_unseen_client = False
         super().__init__(ID, server_id, state, config, data, model, device, strategy, is_unseen_client, *args, **kwargs)
 
         ## Change Sampler to assign Shadow Clients

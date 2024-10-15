@@ -2,6 +2,7 @@ import abc
 import logging
 
 from collections import deque
+from typing import List
 import heapq
 from copy import deepcopy
 import numpy as np
@@ -65,10 +66,13 @@ class BaseRunner(object):
         self.gpu_manager = GPUManager(gpu_available=self.cfg.use_gpu,
                                       specified_device=self.cfg.device)
 
-        self.unseen_clients_id = []
+        self.unseen_clients_id = self._init_unseen_clients(self.cfg.federate.unseen_clients_rate) #[]
         self.feat_engr_wrapper_client, self.feat_engr_wrapper_server = \
             get_feat_engr_wrapper(config)
+        """
         if self.cfg.federate.unseen_clients_rate > 0:
+            self.unseen_clients_id = self._init_unseen_clients(self.cfg.federate.unseen_clients_rate)
+            
             self.unseen_clients_id = np.random.choice(
                 np.arange(1, self.cfg.federate.client_num + 1),
                 size=max(
@@ -76,6 +80,8 @@ class BaseRunner(object):
                     int(self.cfg.federate.unseen_clients_rate *
                         self.cfg.federate.client_num)),
                 replace=False).tolist()
+        """
+            
         # get resource information
         self.resource_info = get_resource_info(
             config.federate.resource_info_file)
@@ -86,6 +92,21 @@ class BaseRunner(object):
         # Set up for Runner
         self._set_up()
 
+    def _init_unseen_clients(self, unseen_clients_rate) -> List[int]:
+        """
+        Initialize the unseen clients.
+        """
+        unseen_clients_id = []
+        if unseen_clients_rate > 0:
+            unseen_clients_id = np.random.choice(
+                np.arange(1, self.cfg.federate.client_num + 1),
+                size=max(
+                    1,
+                    int(unseen_clients_rate * self.cfg.federate.client_num)),
+                replace=False).tolist()
+        return unseen_clients_id
+        
+    
     @abc.abstractmethod
     def _set_up(self):
         """
@@ -1035,6 +1056,22 @@ class StandAloneShadowRunner(StandaloneRunner):
         federatedscope.core.auxiliaries.data_builder .
         server_class: The server
     """
+    
+    def _init_unseen_clients(self, unseen_clients_rate) -> List[int]:
+        """
+        Initialize the unseen clients.
+        """
+        unseen_clients_id = []
+        if unseen_clients_rate > 0:
+            unseen_clients_id = np.random.choice(
+                np.arange(1, self.cfg.federate.standalone_args.shadow_client_num + 1),
+                size=max(
+                    1,
+                    int(unseen_clients_rate * self.cfg.federate.standalone_args.shadow_client_num)),
+                replace=False).tolist()
+        return unseen_clients_id
+    
+    
     def _construct_shadow_map(self) :
         return {i : i for i in range(1, self.cfg.federate.client_num + 1)}
     
@@ -1158,7 +1195,10 @@ class StandAloneShadowRunner(StandaloneRunner):
         """
         assert self.cfg.federate.sampler == 'uniform', \
             "Shadow Runner only supports uniform sampler"
-            
+        
+        if len(self.unseen_clients_id) > 0 :
+            seen_data_indices, unseen_data_indices = self.merge_client_data_via_seen()
+        
         self._server_device = self.gpu_manager.auto_choice()
         server = self.server_class(
             ID=self.server_id,
@@ -1169,6 +1209,8 @@ class StandAloneShadowRunner(StandaloneRunner):
             total_round_num=self.cfg.federate.total_round_num,
             device=self._server_device,
             unseen_clients_id=self.unseen_clients_id,
+            seen_data_indices=seen_data_indices,
+            unseen_data_indices=unseen_data_indices,
             **kw)
         ## change back to the original client_num
         ## for server-side start up trigger : 
@@ -1186,7 +1228,36 @@ class StandAloneShadowRunner(StandaloneRunner):
             server = wrap_swa_server(server)
         logger.info('Server has been set up ... ')
         return self.feat_engr_wrapper_server(server)
+    
+    
+    def merge_client_data_via_seen(self):
+        
+        unseen_data = []
+        seen_data = []
+        
+        for client_id in range(1, self.cfg.federate.standalone_args.shadow_client_num + 1):
+            if client_id in self.unseen_clients_id:
+                unseen_data.append(self.data[client_id])
+            else :
+                seen_data.append(self.data[client_id])
+        
+        ## now merge by split
+        seen_dataset_indices = {"train": [], "val": [], "test": []}
+        unseen_dataset_indices = {"train": [], "val": [], "test": []}
+        for split in ['train', 'val', 'test']:
+            sub_sample_indices = []
+            for data in unseen_data:
+                sub_sample_indices = sub_sample_indices + list(data[split].dataset.indices)
+            unseen_dataset_indices[split] = sub_sample_indices
             
+            sub_sample_indices = []
+            for data in seen_data:
+                sub_sample_indices = sub_sample_indices + list(data[split].dataset.indices)
+            seen_dataset_indices[split] = sub_sample_indices
+
+        return seen_dataset_indices, unseen_dataset_indices
+        
+        
             
     def _handle_msg(self, msg, rcv=-1):
         """
