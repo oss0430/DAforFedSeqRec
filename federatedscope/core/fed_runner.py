@@ -1198,6 +1198,9 @@ class StandAloneShadowRunner(StandaloneRunner):
         
         if len(self.unseen_clients_id) > 0 :
             seen_data_indices, unseen_data_indices = self.merge_client_data_via_seen()
+        else :
+            seen_data_indices = None
+            unseen_data_indices = None
         
         self._server_device = self.gpu_manager.auto_choice()
         server = self.server_class(
