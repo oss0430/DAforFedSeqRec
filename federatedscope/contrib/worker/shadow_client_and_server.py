@@ -49,9 +49,9 @@ class ShadowServer(Server):
         else:
             self.sampler = None
         
-        self.seen_data_indices = kwargs.get('seen_data_indices', [])
-        self.unseen_data_indices = kwargs.get('unseen_data_indices', [])
-        if len(self.unseen_data_indices) > 0 and self._cfg.federate.make_global_eval:
+        self.seen_data_indices = kwargs.get('seen_data_indices', None)
+        self.unseen_data_indices = kwargs.get('unseen_data_indices', None)
+        if self.unseen_data_indices and self._cfg.federate.make_global_eval:
             self._init_seen_and_unseen_data()
     
     
