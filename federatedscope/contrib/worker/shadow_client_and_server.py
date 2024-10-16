@@ -144,7 +144,8 @@ class ShadowServer(Server):
         To conduct evaluation. When ``cfg.federate.make_global_eval=True``, \
         a global evaluation is conducted by the server.
         """
-        split_eval_seen_and_unseen = True
+        split_eval_seen_and_unseen = self._cfg.federate.make_global_eval and \
+            len(self.unseen_clients_id) > 0
         if self._cfg.federate.make_global_eval:
             # By default, the evaluation is conducted one-by-one for all
             # internal models;
