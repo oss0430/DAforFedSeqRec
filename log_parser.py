@@ -16,7 +16,7 @@ def from_eval_log_return_eval_metrics(eval_log_file : str,
     eval_metrics = {'Round' : [], 'Results_raw' : []}
     best_results = None
     best_results_so_far = None
-    best_res = 0.0
+    best_res = 1000000
     for line in eval_log_file.split("\n"):
         if "Results_raw" in line:
             line_dict = ast.literal_eval(line)
@@ -24,12 +24,13 @@ def from_eval_log_return_eval_metrics(eval_log_file : str,
                 ## global wise eval
                 round = line_dict['Round']
                 if round == 'Final':
-                    best_results = line_dict['Results_raw']
-                else :
+                    best_results = line_dict['Results_raw']['server_global_eval']
+                elif type(round) == int:
                     eval_metrics['Round'].append(round)
                     eval_metrics['Results_raw'].append(line_dict['Results_raw'])
                     try :
-                        if best_res < line_dict['Results_raw'][best_res_update]:
+                        ## since is loss smaller is better
+                        if best_res > line_dict['Results_raw'][best_res_update]:
                             best_res = line_dict['Results_raw'][best_res_update]
                             best_results_so_far = line_dict['Results_raw']
                     except :
