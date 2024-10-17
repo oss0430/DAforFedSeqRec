@@ -431,8 +431,11 @@ class Server(BaseServer):
                 ## add checkpoint name with round number
                 file_path, file_ext = os.path.splitext(self._cfg.federate.save_to)
                 dir_name, base_name = os.path.split(file_path)
-                new_base_name = f'{base_name}_checkpoint_round_{self.state}{file_ext}'
-                new_checkpoint_name = os.path.join(dir_name, new_base_name)
+                
+                checkpoints_dir = os.path.join(dir_name, base_name)
+                
+                new_base_name = f'checkpoint_round_{self.state}{file_ext}'
+                new_checkpoint_name = os.path.join(checkpoints_dir, new_base_name)
                 
                 logger.info(f'Server: Saving checkpoint at the end of round {self.state}.')
                 self.aggregator.save_model(new_checkpoint_name, self.state)
