@@ -9,13 +9,16 @@
             "console" : "integratedTerminal",
             "args" : [
                 "-o", "amazon_beauty", // original dataset name
-                "-n", "2",
+                "-n", "60",
                 "-r", "", //"../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core_mapped/debug", // result dataset name (if not given, it will be original dataset name + augmentation type)
-                "-t", "random_pushing", // augmenation type
+                "-t", "random_masking", // augmenation type
                 "-d", "left", // direction, only used at cutting augmentation
                 "-p", "0.1", // replace probabiliy, only used at replace augmentation
-                "-pls", "5", // push length range start, only used at pushing augmentation
-                "-ple", "10", // push length range end, only used at pushing augmentation
+                "-ls", "2", // push length range start, only used at pushing augmentation
+                "-le", "3", // push length range end, only used at pushing augmentation
+                "-is", "1", // item_perturb range start
+                "-ie", "5", // item_perturb range end
+                "-mi", "0", // mask count
                 "-no_org", "True"
             ]
         },
@@ -26,7 +29,7 @@
             "program" : "main.py",
             "console" : "integratedTerminal",
             "args" : [
-                "--cfg", "run_configs/unseen_user/Debug_ml-1m_unseen_5e-1.yaml"
+                "--cfg", "run_configs/aug_select_org_removed/ml-1m_hidden_64_lr1e-2/ML-1M_No_Augs_60K_agg_var_report.yaml"
             ]
         },
         {

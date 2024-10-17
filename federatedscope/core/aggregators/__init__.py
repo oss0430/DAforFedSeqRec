@@ -15,6 +15,8 @@ from federatedscope.core.aggregators.bulyan_aggregator import \
     BulyanAggregator
 from federatedscope.core.aggregators.normbounding_aggregator import \
     NormboundingAggregator
+from federatedscope.core.aggregators.client_avg_with_variance_aggregator import \
+    VarianceReportingClientAvgAggregator
 #from federatedscope.core.aggregators.sasrec_aggregator import SASRecAggregator
 
 __all__ = [
@@ -30,5 +32,6 @@ __all__ = [
     'TrimmedmeanAggregator',
     'BulyanAggregator',
     'NormboundingAggregator',
+    'VarianceReportingClientAvgAggregator'
 #    'SASRecAggregator'
 ]

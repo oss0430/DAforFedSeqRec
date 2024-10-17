@@ -60,7 +60,8 @@ def get_aggregator(method, model=None, device=None, online=False, config=None):
             FedOptAggregator, NoCommunicationAggregator, \
             AsynClientsAvgAggregator, KrumAggregator, \
             MedianAggregator, TrimmedmeanAggregator, \
-            BulyanAggregator,  NormboundingAggregator #, \
+            BulyanAggregator,  NormboundingAggregator, \
+            VarianceReportingClientAvgAggregator #, \
             #SASRecAggregator
 
     STR2AGG = {
@@ -70,6 +71,7 @@ def get_aggregator(method, model=None, device=None, online=False, config=None):
         'bulyan': BulyanAggregator,
         'trimmedmean': TrimmedmeanAggregator,
         'normbounding': NormboundingAggregator,
+        'fedavg_variance': VarianceReportingClientAvgAggregator,
         #'sasrec_normbound' : SASRecAggregator,
     }
 
