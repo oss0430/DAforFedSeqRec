@@ -3,6 +3,7 @@ import os
 import sys
 
 import random
+from itertools import combinations
 from typing import List
 
 from federatedscope.core.auxiliaries.utils import setup_seed
@@ -23,12 +24,18 @@ parser.add_argument('-t', '--augmentation_type', type=str, default='random_repla
                                                                                                 'cutting', 
                                                                                                 'shuffle', 
                                                                                                 'random_pushing', 
-                                                                                                'self_sampled_pushing'])
+                                                                                                'self_sampled_pushing',
+                                                                                                'random_masking',
+                                                                                                'cut_middle',
+                                                                                                'random_deletion'])
 parser.add_argument('-p', '--replace_probability', type=float, default=0.1)
 parser.add_argument('-d', '--direction', type=str, default='left', choices=['right',
                                                                             'left'])
-parser.add_argument('-pls', '--push_length_range_start', type = int, default = 1)
-parser.add_argument('-ple', '--push_length_range_end', type = int, default = 4)
+parser.add_argument('-ls', '--length_range_start', type = int, default = 1) ## both for cut_middle length min
+parser.add_argument('-le', '--length_range_end', type = int, default = 4) ## both for cut_middle length max
+parser.add_argument('-is', '--item_perturb_range_start', type=int, default=1) ## for random_deletion
+parser.add_argument('-ie', '--item_perturb_range_end', type=int, default=1) ## for random_deletion
+parser.add_argument('-mi', '--mask_token_id', type=int, default=0) ## only for random_masking
 parser.add_argument('-n', '--number_of_generation', type=int, default=60)
 parser.add_argument('-s', '--seed', type=int, default=42)
 
@@ -336,6 +343,237 @@ class SelfSampledSequencePushing(RandomSequencePushing) :
         return pushing_sequence
 
 
+class RandomMasking(AugmentationGenerator):
+    
+    def __init__(
+        self,
+        full_sequence_dataset : SequenceDataset,
+        number_of_generation : int,
+        max_item_ids : int,
+        max_sequence_length : int,
+        min_sequence_length : int,
+        min_mask_count : int,
+        max_mask_count : int,
+        mask_token_id : int = 0
+    ) :
+        self.min_mask_count = min_mask_count
+        self.max_mask_count = max_mask_count
+        self.mask_token_id = mask_token_id
+        super(RandomMasking, self).__init__(full_sequence_dataset, number_of_generation, max_item_ids, max_sequence_length, min_sequence_length)
+    
+    def _short_sequence_deletion(self, item_sequence, sequence_length, max_mask_count):
+        possible_combinations = []
+        sequence_start_idx = 0
+        if sequence_length > self.max_sequence_length :
+            sequence_start_idx = sequence_length - self.max_sequence_length
+        
+        for i in range(self.min_mask_count, max_mask_count + 1) :
+            possible_combinations = possible_combinations + list(combinations(range(sequence_start_idx, sequence_length), i))
+        
+        random.shuffle(possible_combinations)
+        masked_sequences = []
+        list_item_sequence = item_sequence.tolist()
+        for combo in possible_combinations :    
+            if len(masked_sequences) >= self.number_of_generation :
+                break
+            mask_sequence = []
+            for idx, item in enumerate(list_item_sequence):
+                if idx not in combo :
+                    mask_sequence.append(item)
+                else :
+                    mask_sequence.append(self.mask_token_id)
+            mask_sequence = torch.tensor(mask_sequence)
+            masked_sequences.append(mask_sequence)
+            
+        return masked_sequences
+    
+    
+    def generate_for_sequence(
+        self,
+        item_sequence : torch.Tensor
+    ) -> List[torch.Tensor]:
+        ## Shuffle the sequence
+        ## Randomly Delete N items
+        ## first check if the sequence is already at the minimum length
+        ## and maximum deleteion count
+        sequence_length = len(item_sequence)
+        max_item_at_disposal = max(sequence_length - self.min_sequence_length, 0)
+        if max_item_at_disposal < self.min_mask_count :
+            return []
+        max_mask_count = min(max_item_at_disposal, self.max_mask_count)
+        
+        sequence_start_idx = 0
+        if sequence_length > self.max_sequence_length :
+            sequence_start_idx = sequence_length - self.max_sequence_length
+        
+        seen_combinations = set()
+        
+        if sequence_length - self.min_mask_count < 10:
+            return self._short_sequence_deletion(item_sequence, sequence_length, max_mask_count)
+        
+        masked_sequences = []
+        max_continue = 20
+        continue_count = 0
+        list_item_sequence = item_sequence.tolist()
+        while len(masked_sequences) < self.number_of_generation :
+            # Randomly Select a number of items to delete within the range
+            mask_count = random.randint(self.min_mask_count, max_mask_count)
+            masking_indices = sorted(random.sample(range(sequence_start_idx, sequence_length), mask_count))
+            
+            if tuple(masking_indices) in seen_combinations :
+                if continue_count > max_continue :
+                    break
+                continue_count = continue_count + 1
+                continue
+            else : 
+                continue_count = 0
+            seen_combinations.add(tuple(masking_indices))
+            masked_seuqence = [self.mask_token_id if idx in masking_indices else item \
+                                for idx, item in enumerate(list_item_sequence)]
+            masked_seuqence = torch.tensor(masked_seuqence)        
+            masked_sequences.append(masked_seuqence)
+            
+        return masked_sequences
+    
+
+class CutMiddleAugmentation(AugmentationGenerator):
+    
+    def __init__(
+        self,
+        full_sequence_dataset : SequenceDataset,
+        number_of_generation : int,
+        max_item_ids : int,
+        max_sequence_length : int,
+        min_sequence_length : int,
+        cut_count_min : int,
+        cut_count_max : int
+    ) :
+        self.cut_count_min = cut_count_min
+        self.cut_count_max = cut_count_max
+        super(CutMiddleAugmentation, self).__init__(full_sequence_dataset, number_of_generation, max_item_ids, max_sequence_length, min_sequence_length)
+    
+    
+    def generate_for_sequence(
+        self,
+        item_sequence : torch.Tensor
+    ) -> List[torch.Tensor]:
+        
+        ## check for appropriate cut range
+        sequence_length = len(item_sequence)
+        max_item_at_disposal = max(sequence_length - self.min_sequence_length, 0)
+        if max_item_at_disposal < self.cut_count_min :
+            return []
+        
+        cut_count_max = min(max_item_at_disposal, self.cut_count_max)
+        
+        seq_start = 0
+        if sequence_length > self.max_sequence_length :
+            seq_start = sequence_length - self.max_sequence_length
+        
+        possible_combinations = []
+        for cut_length in range(self.cut_count_min, cut_count_max + 1) :
+            possible_combinations = possible_combinations + [(start_idx, cut_length) for start_idx in range(seq_start, sequence_length - cut_length + 1)]
+        
+        random.shuffle(possible_combinations)
+        cut_sequences = []
+        for (cut_start, current_cut_length) in possible_combinations :
+            if len(cut_sequences) >= self.number_of_generation :
+                break
+            cut_end = cut_start + current_cut_length
+            cut_sequence = torch.cat([item_sequence[:cut_start], item_sequence[cut_end:]])
+            cut_sequences.append(cut_sequence)
+        
+        return cut_sequences
+
+
+class RandomDeletion(AugmentationGenerator):
+    
+    def __init__(
+        self,
+        full_sequence_dataset : SequenceDataset,
+        number_of_generation : int,
+        max_item_ids : int,
+        max_sequence_length : int,
+        min_sequence_length : int,
+        delete_count_min : int,
+        delete_count_max : int
+    ) :
+        self.delete_count_min = delete_count_min
+        self.delete_count_max = delete_count_max
+        super(RandomDeletion, self).__init__(full_sequence_dataset, number_of_generation, max_item_ids, max_sequence_length, min_sequence_length)
+
+    
+    def _short_sequence_deletion(self, item_sequence, sequence_length, delete_count_max):
+        possible_combinations = []
+        sequence_start_idx = 0
+        if sequence_length > self.max_sequence_length :
+            sequence_start_idx = sequence_length - self.max_sequence_length
+        
+        for i in range(self.delete_count_min, delete_count_max + 1) :
+            possible_combinations = possible_combinations + list(combinations(range(sequence_start_idx, sequence_length), i))
+        
+        random.shuffle(possible_combinations)
+        deleted_sequences = []
+        list_item_sequence = item_sequence.tolist()
+        for combo in possible_combinations :    
+            if len(deleted_sequences) >= self.number_of_generation :
+                break
+            deleted_sequence = []
+            for idx, item in enumerate(list_item_sequence):
+                if idx not in combo :
+                    deleted_sequence.append(item)
+            deleted_sequence = torch.tensor(deleted_sequence)
+            deleted_sequences.append(deleted_sequence)
+            
+        return deleted_sequences
+    
+    
+    def generate_for_sequence(
+        self,
+        item_sequence : torch.Tensor
+    ) -> List[torch.Tensor]:
+        ## Shuffle the sequence
+        ## Randomly Delete N items
+        ## first check if the sequence is already at the minimum length
+        ## and maximum deleteion count
+        sequence_length = len(item_sequence)
+        max_item_at_disposal = max(sequence_length - self.min_sequence_length, 0)
+        if max_item_at_disposal < self.delete_count_min :
+            return []
+        delete_count_max = min(max_item_at_disposal, self.delete_count_max)
+        
+        sequence_start_idx = 0
+        if sequence_length > self.max_sequence_length :
+            sequence_start_idx = sequence_length - self.max_sequence_length
+        
+        seen_combinations = set()
+        
+        if sequence_length - self.delete_count_min < 10:
+            return self._short_sequence_deletion(item_sequence, sequence_length, delete_count_max)
+        
+        deleted_sequences = []
+        max_continue = 20
+        continue_count = 0
+        while len(deleted_sequences) < self.number_of_generation :
+            # Randomly Select a number of items to delete within the range
+            delete_count = random.randint(self.delete_count_min, delete_count_max)
+            delete_indices = sorted(random.sample(range(sequence_start_idx, sequence_length), delete_count))
+            
+            if tuple(delete_indices) in seen_combinations :
+                if continue_count > max_continue :
+                    break
+                continue_count = continue_count + 1
+                continue
+            else : 
+                continue_count = 0
+            seen_combinations.add(tuple(delete_indices))
+            deleted_sequence = [item for idx, item in enumerate(item_sequence) if idx not in delete_indices]
+            deleted_sequence = torch.tensor(deleted_sequence)        
+            deleted_sequences.append(deleted_sequence)
+            
+        return deleted_sequences
+
+
 def sequence_to_tokens(
     user_id : int,
     full_sequence : List[int]
@@ -429,7 +667,9 @@ def __main__():
     augmentation_prob = args.replace_probability
     number_of_generation = args.number_of_generation
     augmentation_type = args.augmentation_type
-    push_length_range = [args.push_length_range_start, args.push_length_range_end]
+    length_range = [args.length_range_start, args.length_range_end]
+    item_pertrub_range = [args.item_perturb_range_start, args.item_perturb_range_end]
+    mask_token_id = args.mask_token_id
     seed = args.seed
     user_gpu = True
     gpu_id = 0
@@ -455,8 +695,11 @@ def __main__():
             leaf_folder = f"{leaf_folder}_{augmentation_prob}"
         elif augmentation_type == 'cutting' :
             leaf_folder = f"{leaf_folder}_{direction}"
-        elif augmentation_type == 'random_pushing' or augmentation_type == 'self_sampled_pushing' :
-            leaf_folder = f"{leaf_folder}_{direction}_{push_length_range[0]}_{push_length_range[1]}"
+        elif augmentation_type == 'random_pushing' or augmentation_type == 'self_sampled_pushing'\
+            or augmentation_type == 'cut_middle' :
+            leaf_folder = f"{leaf_folder}_{length_range[0]}_{length_range[1]}"
+        elif  augmentation_type == 'random_masking' or augmentation_type == 'random_deletion':
+            leaf_folder = f"{leaf_folder}_{item_pertrub_range[0]}_{item_pertrub_range[1]}"
         save_path_dir = result_branch_path + leaf_folder
         ## remove the original sequence if we can
         if args.no_original :
@@ -477,10 +720,17 @@ def __main__():
         pass
     elif augmentation_type == 'random_pushing' :
         print("Push direction : ", direction)
-        print("Push length range : ", push_length_range)
+        print("Push length range : ", length_range)
     elif augmentation_type == 'self_sampled_pushing' :
         print("Push direction : ", direction)
-        print("Push length range : ", push_length_range)
+        print("Push length range : ", length_range)
+    elif augmentation_type == 'random_masking' :
+        print("Mask count range: ", item_pertrub_range)
+    elif augmentation_type == 'cut_middle' :
+        print("Cut count range : ", length_range)
+    elif augmentation_type == 'random_deletion' :
+        print("Delete count range : ", item_pertrub_range)
+    
     
     if args.no_original :
         print("we are removing the original sequence if we can")
@@ -514,7 +764,7 @@ def __main__():
                                                        max_sequence_length,
                                                        min_sequence_length,
                                                        direction,
-                                                       push_length_range)
+                                                       length_range)
     elif augmentation_type == 'self_sampled_pushing' :
         augmentation_generator = SelfSampledSequencePushing(full_sequence_dataset,
                                                             number_of_generation,
@@ -522,7 +772,32 @@ def __main__():
                                                             max_sequence_length,
                                                             min_sequence_length,
                                                             direction,
-                                                            push_length_range)
+                                                            length_range)
+    elif augmentation_type == 'random_masking' :
+        augmentation_generator = RandomMasking(full_sequence_dataset,
+                                                  number_of_generation,
+                                                  max_item_ids,
+                                                  max_sequence_length,
+                                                  min_sequence_length,
+                                                  item_pertrub_range[0],
+                                                  item_pertrub_range[1],
+                                                  mask_token_id)
+    elif augmentation_type == 'cut_middle' :
+        augmentation_generator = CutMiddleAugmentation(full_sequence_dataset,
+                                                         number_of_generation,
+                                                         max_item_ids,
+                                                         max_sequence_length,
+                                                         min_sequence_length,
+                                                         length_range[0],
+                                                         length_range[1])
+    elif augmentation_type == 'random_deletion' :
+        augmentation_generator = RandomDeletion(full_sequence_dataset,
+                                                  number_of_generation,
+                                                  max_item_ids,
+                                                  max_sequence_length,
+                                                  min_sequence_length,
+                                                  item_pertrub_range[0],
+                                                  item_pertrub_range[1])
     else :
         raise ValueError('Invalid augmentation type')
     
