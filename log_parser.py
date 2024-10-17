@@ -7,7 +7,7 @@ from typing import List, Dict, Tuple
 def _get_exp_files_path(dir_path) -> Tuple[str, str, str]:
     eval_result_log = os.path.join(dir_path, "eval_results.log")
     config = os.path.join(dir_path, "config.yaml")
-    print_log = os.path.join(dir_path, "print.log")
+    print_log = os.path.join(dir_path, "exp_print.log")
     
     return eval_result_log, config, print_log
     
@@ -43,24 +43,30 @@ def from_eval_log_return_eval_metrics(eval_log_file : str,
     return best_results, eval_metrics
 
 
-def from_print_log_return_client_metrics(print_log_file : str) -> Tuple[Dict, List]: 
+def from_print_log_return_client_metrics(print_log_file : str, client_per_round : int = 16) -> Tuple[Dict, List]: 
     client_metrics = {'Round' : [], 'Results_raw' : []}
     ## parse column values
     columns = ['client_id', 'Round']
     for line in print_log_file.split("\n"):
-        if "Results_raw" in line:
-            if 'Client' in line:
-                line_dict = ast.literal_eval(line)
+        if "Results_raw" in line and 'Client' in line:
+            match = re.search(r"\{.*\}", line)
+            if match:
+                dict_values = match.group(0)
+                line_dict = ast.literal_eval(dict_values)
                 columns = columns + list(line_dict['Results_raw'].keys())
                 break
-    
+
+    if len(columns) == 2:
+        raise ValueError("No client metrics found in the print log")
     raw_metrics = []
     for line in print_log_file.split("\n"):
         if "Results_raw" in line:
-            line_dict = ast.literal_eval(line)
-            if line_dict['Role'] == 'Server #':
+            if 'Server #' in line:
                 pass
-            elif 'Client' in line_dict['Role'] :
+            elif 'Client' in line :
+                match = re.search(r"\{.*\}", line)
+                dict_values = match.group(0)
+                line_dict = ast.literal_eval(dict_values)
                 values = np.zeros(len(columns))
                 client_id = int(re.findall(r'\d+', line_dict['Role'])[0])
                 round = line_dict['Round']
@@ -74,10 +80,11 @@ def from_print_log_return_client_metrics(print_log_file : str) -> Tuple[Dict, Li
     
     ## groub by round
     raw_metrics = np.array(raw_metrics)
-    for round in np.unique(raw_metrics[:,1]):
-        round_idx = np.where(raw_metrics[:,1] == round)
-        client_metrics['Round'].append(round)
-        client_metrics['Results_raw'] = np.vstack((client_metrics['Results_raw'], raw_metrics[round_idx])) if 'Results_raw' in client_metrics else raw_metrics[round_idx]
+    N, M = raw_metrics.shape
+    if N % client_per_round != 0:
+        raw_metrics = raw_metrics[:-(N % client_per_round)]
+    
+    client_metrics = raw_metrics.reshape(N // client_per_round, client_per_round, M)
     
     return client_metrics, columns
 
@@ -93,15 +100,31 @@ def from_dir_paths_get_eval_metrics(dir_paths : list, best_res_update : str = 't
     
     return eval_result_via_path
 
-def from_dir_paths_get_client_metrics(dir_paths : list):
+def from_dir_paths_get_client_metrics(dir_paths : list, client_per_round : int = 16):
     client_metrics_via_path = {}
-    
-    for dir_path in dir_paths:
+    from tqdm import tqdm
+    for dir_path in tqdm(dir_paths, desc="Parsing client metrics", total=len(dir_paths)):
         eval_result_log, config, print_log = _get_exp_files_path(dir_path)
         with open(print_log, 'r') as f:
             print_log_file = f.read()
-            client_metrics_via_path[dir_path] = from_print_log_return_client_metrics(print_log_file)
+            client_metrics_via_path[dir_path] = from_print_log_return_client_metrics(print_log_file, client_per_round)
     
     return client_metrics_via_path
         
-    
+## TESTING
+"""
+ML_1M_Paths = [
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200346',
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200356',
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200404',
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200411',
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200421',
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200429',
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200438',
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200447',
+    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200457']
+
+dataset_key = 'ml-1m'
+path_dict = {'ml-1m': ML_1M_Paths}
+train_metrics = from_dir_paths_get_client_metrics(path_dict[dataset_key], client_per_round=16)
+"""
