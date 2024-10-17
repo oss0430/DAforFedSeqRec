@@ -425,6 +425,18 @@ class Server(BaseServer):
                 self.save_client_eval_results()
             self.terminate(msg_type='finish')
 
+        if self.state % self._cfg.eval.freq == 0 and self.state != \
+                        self.total_round_num:
+            if self._cfg.federate.save_to != '':
+                ## add checkpoint name with round number
+                file_path, file_ext = os.path.splitext(self._cfg.federate.save_to)
+                dir_name, base_name = os.path.split(file_path)
+                new_base_name = f'{base_name}_checkpoint_round_{self.state}{file_ext}'
+                new_checkpoint_name = os.path.join(dir_name, new_base_name)
+                
+                logger.info(f'Server: Saving checkpoint at the end of round {self.state}.')
+                self.aggregator.save_model(new_checkpoint_name, self.state)
+        
         # Clean the clients evaluation msg buffer
         if not self._cfg.federate.make_global_eval:
             round = max(self.msg_buffer['eval'].keys())
