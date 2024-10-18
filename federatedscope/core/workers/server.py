@@ -437,6 +437,9 @@ class Server(BaseServer):
                 new_base_name = f'checkpoint_round_{self.state}{file_ext}'
                 new_checkpoint_name = os.path.join(checkpoints_dir, new_base_name)
                 
+                ## make sure the directory exists
+                os.makedirs(checkpoints_dir, exist_ok=True)
+                
                 logger.info(f'Server: Saving checkpoint at the end of round {self.state}.')
                 self.aggregator.save_model(new_checkpoint_name, self.state)
         

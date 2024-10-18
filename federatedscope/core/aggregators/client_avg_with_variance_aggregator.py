@@ -47,7 +47,7 @@ class VarianceReportingClientAvgAggregator(ClientsAvgAggregator):
                 delta =  local_model[key] - mean
                 mean += delta * weight
                 delta_2 = local_model[key] - mean
-                variance += float(torch.flatten(delta * delta_2).sum())
+                variance += float(torch.flatten(delta * delta_2).mean())
                 if i == 0:
                     avg_model[key] = local_model[key] * weight
                 else:
