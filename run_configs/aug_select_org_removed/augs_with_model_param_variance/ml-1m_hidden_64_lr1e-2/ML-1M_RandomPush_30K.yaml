@@ -5,38 +5,33 @@ early_stop:
 federate:
   mode: standalone
   method : shadow
-  total_round_num: 30000
+  total_round_num: 60000
   client_num: 16 # 6040
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m/1018_Augmentation_Selection_via_train_loss.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m_hidden_64_lr1e-2/1017_RandPush.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 6040
     use_one_hop_eval : True
+aggregator:
+  robust_rule : fedavg_variance
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
-  partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/ml-1m/split'
+  partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/ml-1m/combined'
   type: sr_data
   consistent_label_distribution: False ## This can be only used when the datasets are sorted by user_ids
   splitter : sr_splitter
   augmentation_args :
     augmentation_column : 'augmentation_idx:token'
-    use_augmentation : False
+    use_augmentation : True
     max_augmentation_idx : 9 ## load all augmentations
     is_zero_original : False
     is_multiple : True
-    aug_types_count : 3 ## aug types
+    aug_types_count : 9 ## aug types
     df_paths : ['../../../../data1/donghoon/FederatedScopeData/ml-1m/split',
-                '../../../../data1/donghoon/FederatedScopeData/ml-1m/self_sampled_pushing_left_10_20_no_original',
-                #'../../../../data1/donghoon/FederatedScopeData/ml-1m/random_pushing_left_10_20_no_original',
-                #'../../../../data1/donghoon/FederatedScopeData/ml-1m/random_replacing_0.1_no_original',
-                #'../../../../data1/donghoon/FederatedScopeData/ml-1m/random_replacing_0.2_no_original',
-                #'../../../../data1/donghoon/FederatedScopeData/ml-1m/random_replacing_0.3_no_original',
-                #'../../../../data1/donghoon/FederatedScopeData/ml-1m/random_replacing_0.4_no_original',
-                #'../../../../data1/donghoon/FederatedScopeData/ml-1m/random_replacing_0.5_no_original',
-                '../../../../data1/donghoon/FederatedScopeData/ml-1m/shuffle_no_original'
+                '../../../../data1/donghoon/FederatedScopeData/ml-1m/random_pushing_left_10_20_no_original',
                 ]
 dataloader :
   type : base
@@ -51,13 +46,13 @@ train:
   batch_or_epoch : 'batch'
   local_update_steps: 20
   optimizer:
-    lr: 0.001
+    lr: 0.01
 criterion:
   type: CrossEntropyLoss
 trainer:
   type: sasrec_trainer
 eval:
-  freq: 1
+  freq: 1000
   metrics: ['recall_10','recall_20','ndcg_10','ndcg_20']
   split : ['val', 'test']
   best_res_update_round_wise_key: test_avg_loss
