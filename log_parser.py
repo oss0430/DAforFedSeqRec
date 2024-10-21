@@ -89,6 +89,18 @@ def from_print_log_return_client_metrics(print_log_file : str, client_per_round 
     return client_metrics, columns
 
 
+def from_print_log_serach_dict_via_round(print_log_file : str, search_key : str) -> List[Dict]:
+    search_dicts = []
+    for line in print_log_file.split("\n"):
+        if search_key in line:
+            match = re.search(r"\{.*\}", line)
+            if match:
+                dict_values = match.group(0)
+                line_dict = ast.literal_eval(dict_values)
+                search_dicts.append(line_dict)
+    return search_dicts
+
+
 def from_dir_paths_get_eval_metrics(dir_paths : list, best_res_update : str = 'test_avg_loss'):
     eval_result_via_path = {}
     
@@ -112,19 +124,3 @@ def from_dir_paths_get_client_metrics(dir_paths : list, client_per_round : int =
     return client_metrics_via_path
         
 ## TESTING
-"""
-ML_1M_Paths = [
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200346',
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200356',
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200404',
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200411',
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200421',
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200429',
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200438',
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200447',
-    'exp/shadow_sasrec_on_sr_data_lr0.001_lstep20/sub_exp_20241014200457']
-
-dataset_key = 'ml-1m'
-path_dict = {'ml-1m': ML_1M_Paths}
-train_metrics = from_dir_paths_get_client_metrics(path_dict[dataset_key], client_per_round=16)
-"""

@@ -24,6 +24,7 @@ class VarianceReportingClientAvgAggregator(ClientsAvgAggregator):
         for key in avg_model:
             variance = 0.0
             mean = 0.0
+            count = 0
             for i in range(len(models)):
                 local_sample_size, local_model = models[i]
 
@@ -43,9 +44,9 @@ class VarianceReportingClientAvgAggregator(ClientsAvgAggregator):
                     local_model[key] = param2tensor(local_model[key])
                 
                 # Welford's algorithm to update mean and variance 
-                
+                count += 1
                 delta =  local_model[key] - mean
-                mean += delta * weight
+                mean += delta / count
                 delta_2 = local_model[key] - mean
                 variance += float(torch.flatten(delta * delta_2).mean())
                 if i == 0:
@@ -53,10 +54,8 @@ class VarianceReportingClientAvgAggregator(ClientsAvgAggregator):
                 else:
                     avg_model[key] += local_model[key] * weight
 
-            ## round off variance to 5 decimal places
-            model_variance[key] = round(variance, 5)
-            mean = 0.0
-            variance = 0.0
+            ## round off variance to 8 decimal places
+            model_variance[key] = round(variance / count, 10)
             
             if self.cfg.federate.use_ss and recover_fun:
                 avg_model[key] = recover_fun(avg_model[key])
