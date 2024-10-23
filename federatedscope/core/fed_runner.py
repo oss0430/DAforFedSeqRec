@@ -1218,6 +1218,9 @@ class StandAloneShadowRunner(StandaloneRunner):
         ## change back to the original client_num
         ## for server-side start up trigger : 
         ## refer to federatedscope.core.workers.server.Server.trigger_for_start()
+        if self.cfg.model.checkpoint_round > 0:
+            server.state = self.cfg.model.checkpoint_round
+        
         server.client_num = self.cfg.federate.client_num
         if self.cfg.nbafl.use:
             from federatedscope.core.trainers.trainer_nbafl import \

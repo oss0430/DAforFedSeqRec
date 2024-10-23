@@ -12,7 +12,9 @@ def _get_exp_files_path(dir_path) -> Tuple[str, str, str]:
     return eval_result_log, config, print_log
     
 def from_eval_log_return_eval_metrics(eval_log_file : str,
-                                      best_res_update : str = 'test_avg_loss') -> Tuple[Dict, Dict]:
+                                      best_res_update : str = 'test_avg_loss',
+                                      over_write_best_with_final : bool = False
+                                      ) -> Tuple[Dict, Dict]:
     eval_metrics = {'Round' : [], 'Results_raw' : []}
     best_results = None
     best_results_so_far = None
@@ -23,7 +25,7 @@ def from_eval_log_return_eval_metrics(eval_log_file : str,
             if line_dict['Role'] == 'Server #':
                 ## global wise eval
                 round = line_dict['Round']
-                if round == 'Final':
+                if round == 'Final' and over_write_best_with_final:
                     best_results = line_dict['Results_raw']['server_global_eval']
                 elif type(round) == int:
                     eval_metrics['Round'].append(round)
@@ -101,14 +103,14 @@ def from_print_log_serach_dict_via_round(print_log_file : str, search_key : str)
     return search_dicts
 
 
-def from_dir_paths_get_eval_metrics(dir_paths : list, best_res_update : str = 'test_avg_loss'):
+def from_dir_paths_get_eval_metrics(dir_paths : list, best_res_update : str = 'test_avg_loss', over_write_best_with_final : bool = False):
     eval_result_via_path = {}
     
     for dir_path in dir_paths:
         eval_result_log, config, print_log = _get_exp_files_path(dir_path)
         with open(eval_result_log, 'r') as f:
             eval_log_file = f.read()
-            eval_result_via_path[dir_path] = (from_eval_log_return_eval_metrics(eval_log_file, best_res_update))
+            eval_result_via_path[dir_path] = (from_eval_log_return_eval_metrics(eval_log_file, best_res_update, over_write_best_with_final))
     
     return eval_result_via_path
 
