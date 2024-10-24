@@ -82,6 +82,10 @@ def from_print_log_return_client_metrics(print_log_file : str, client_per_round 
     
     ## groub by round
     raw_metrics = np.array(raw_metrics)
+    if client_per_round <= 1:
+        ## no need to group by round
+        return raw_metrics, columns
+    
     N, M = raw_metrics.shape
     if N % client_per_round != 0:
         raw_metrics = raw_metrics[:-(N % client_per_round)]
@@ -124,5 +128,105 @@ def from_dir_paths_get_client_metrics(dir_paths : list, client_per_round : int =
             client_metrics_via_path[dir_path] = from_print_log_return_client_metrics(print_log_file, client_per_round)
     
     return client_metrics_via_path
+
+
+
+def _clip_client_metrics_via_round(client_metrics : np.ndarray, columns : List, round : int, client_per_round : int = 16) -> Tuple[np.ndarray, int]:
+    
+    if len(client_metrics.shape) != 2:
+        raise ValueError("client_metrics should be 2D array")
+    
+    round_num_column = columns.index('Round')
+    round_indexes = np.where(client_metrics[:, round_num_column] == round)[0]
+    last_round = round
+    
+    if len(round_indexes) > 0 and len(round_indexes) < 16:
+        ## we will use the last round -1 as the last round, and cut the last round
+        cut_index = np.where(client_metrics[:, round_num_column] == round-1)[0][-1]
+        last_round = round - 1
+    elif len(round_indexes) == 16 :
+        cut_index = round_indexes[-1]
+    else :
+        raise ValueError("None existing round")
+
+    return client_metrics[:cut_index+1], last_round
+
+
+def from_print_logs_concat_client_metrics(print_logs : list, client_per_round : int = 16, check_point_list : list = []) -> Dict[np.ndarray, List]:
+
+    current_last_round = -1
+    all_client_metrics = []
+    columns = None
+    for i, print_log in enumerate(print_logs):
+        with open(print_log, 'r') as f:
+            print_log_file = f.read()
+            client_metrics, columns = from_print_log_return_client_metrics(print_log_file, 1)
+            first_round = int(client_metrics[0, 1])
+            if len(check_point_list) > 0:
+                ## check point list is where the next log starts
+                last_round = check_point_list.pop(0) - 1 
+            else :
+                last_round = int(client_metrics[-1, 1])
+            
+            client_metrics, last_round = _clip_client_metrics_via_round(client_metrics, columns, last_round, client_per_round)
+
+            if current_last_round < first_round:
+                ## simple concat
+                all_client_metrics.append(client_metrics)
+            elif current_last_round >= first_round and current_last_round < last_round:
+                ## overlapping rounds, cut the incoming round
+                cut_index = np.where(client_metrics[:, 1] == current_last_round)[0][-1]
+                all_client_metrics.append(client_metrics[cut_index+1:])
+            else:
+                raise ValueError("The print logs are not in order")
+
+            current_last_round = last_round
+    
+    raw_metrics = np.concatenate(all_client_metrics, axis=0)
+    if client_per_round < 1:
+        ## no need to group by round
+        return raw_metrics, columns
+    
+    N, M = raw_metrics.shape
+    if N % client_per_round != 0:
+        raw_metrics = raw_metrics[:-(N % client_per_round)]
         
-## TESTING
+    client_metrics = raw_metrics.reshape(N // client_per_round, client_per_round, M)
+    
+    return raw_metrics, columns        
+
+
+## Needs Testing
+def from_print_logs_concat_search_results(print_logs : list, search_key : str, check_point_list : List[int], client_per_round : int) -> List[Dict]:
+    
+    if len(print_logs) != len(check_point_list) + 1:
+        raise ValueError("The length of print_logs should be less by 1 of check_point_list length")
+    search_dicts = []
+    
+    current_last_round = 0
+    for print_log in print_logs:
+        with open(print_log, 'r') as f:
+            print_log_file = f.read()
+            current_search_dict = from_print_log_serach_dict_via_round(print_log_file, search_key)
+
+            seen_rounds = len(current_search_dict) // client_per_round            
+            if len(check_point_list) > 0:
+                ## check point list is where the next log starts
+                next_last_round = check_point_list.pop(0) - 1
+            else :
+                next_last_round = len(search_dicts) // client_per_round
+            
+            assert seen_rounds >= client_per_round *  (next_last_round - current_last_round), \
+                f"current_search_dict length {len(current_search_dict)} is less than expected"  
+                
+            cut_index = (next_last_round - current_last_round) * client_per_round
+            
+            if len(search_dicts) == 0 :
+                search_dicts = current_search_dict[:cut_index+1]
+            else :
+                search_dicts = search_dicts + current_search_dict[:cut_index+1]
+            current_last_round = next_last_round
+    
+    return search_dicts
+            
+    
