@@ -229,4 +229,60 @@ def from_print_logs_concat_search_results(print_logs : list, search_key : str, c
     
     return search_dicts
             
+
+
+def mend_two_print_logs(print_log1_path : str, print_log2_path : str, cut_round : int) -> str:
+    with open(print_log1_path, 'r') as f:
+        print_log_file1 = f.read()
+    with open(print_log2_path, 'r') as f:
+        print_log_file2 = f.read()
     
+    total_lines = []    
+    ## cut file_1 before witnessing the cut_round
+    for line in print_log_file1.split("\n"):
+        if "Starting a new training round" in line or "Starting training" in line:
+            round_match = re.search(r"\(Round #\d+\)", line)
+            if round_match:
+                round = int(re.search(r'\d+', round_match.group(0))[0])
+                if round == cut_round:
+                    break
+        total_lines.append(line)
+    
+    starts_from_flag = False
+    for line in print_log_file2.split("\n"):
+        if "Starting a new training round" in line or "Starting training" in line:
+            round_match = re.search(r"\(Round #\d+\)", line)
+            if round_match:
+                round = int(re.search(r'\d+', round_match.group(0))[0])
+                if round == cut_round:
+                    starts_from_flag = True
+        if starts_from_flag:
+            total_lines.append(line)
+                
+    return "\n".join(total_lines)
+
+
+def mend_two_eval_logs(eval_log1_path : str, eval_log2_path : str, cut_round : int) -> str:
+    with open(eval_log1_path, 'r') as f:
+        eval_log_file1 = f.read
+    with open(eval_log2_path, 'r') as f:
+        eval_log_file2 = f.read()
+        
+    total_lines = []
+    for line in eval_log_file1.split("\n"):
+        line_dict = ast.literal_eval(line)
+        if line_dict['Round'] == cut_round:
+            break
+        total_lines.append(line)
+    
+    starts_from_flag = False
+    for line in eval_log_file2.split("\n"):
+        line_dict = ast.literal_eval(line)
+        if line_dict['Round'] == cut_round and not starts_from_flag:
+            starts_from_flag = True
+        if starts_from_flag:
+            total_lines.append(line)
+    
+    return "\n".join(total_lines)
+        
+        

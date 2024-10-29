@@ -56,7 +56,7 @@ class ShadowServer(Server):
     
     
     def _init_seen_and_unseen_data(self):
-        
+        logger.info("Initializing Seen and Unseen Data for seperate evaluation")
         unseen_data = ClientData(
             self._cfg,
             train=Subset(self.data['train'].dataset,
