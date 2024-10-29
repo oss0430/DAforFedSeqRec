@@ -5,12 +5,12 @@ early_stop:
 federate:
   mode: standalone
   method : shadow
-  total_round_num: 60000
+  total_round_num: 40000
   client_num: 16 # 6040
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m_hidden_64_lr1e-2/1017_No_Augs.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m_hidden_64_lr1e-2/1021_step_40_No_Augs.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 6040
@@ -33,7 +33,7 @@ model:
   hidden_size: 64
 train:
   batch_or_epoch : 'batch'
-  local_update_steps: 20
+  local_update_steps: 40
   optimizer:
     lr: 0.01
 criterion:

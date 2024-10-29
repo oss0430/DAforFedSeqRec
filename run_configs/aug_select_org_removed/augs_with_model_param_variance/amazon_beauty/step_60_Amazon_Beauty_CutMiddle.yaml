@@ -1,5 +1,5 @@
 use_gpu: True
-device: 0
+device: 1
 early_stop:
   patience: 1000
 federate:
@@ -10,7 +10,7 @@ federate:
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/1021_40_step_SelfSampledPush.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/1023_60_step_cut_middle.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 22363
@@ -35,7 +35,7 @@ data:
     is_multiple : True
     aug_types_count : 2 ## aug types
     df_paths : ['../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/split',
-                '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/self_sampled_pushing_left_5_10_no_original']
+                '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/cut_middle_1_5_no_original']
 dataloader :
   type : base
   batch_size : 1
@@ -43,12 +43,13 @@ model:
   type: sasrec
   hidden_dropout_prob: 0.0
   attn_dropout_prob: 0.0
-  pretrained_model_path : ""
+  pretrained_model_path : '../../../../data1/donghoon/FederatedScopeData/exp/amazon_beauty/1023_60_step_cut_middle/checkpoint_round_26000.pt'
+  checkpoint_round : 26000
   hidden_size: 64
   item_num : 12101
 train:
   batch_or_epoch : 'batch'
-  local_update_steps: 40
+  local_update_steps: 60
   optimizer:
     lr: 0.01
 criterion:

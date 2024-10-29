@@ -43,7 +43,8 @@ model:
   type: sasrec
   hidden_dropout_prob: 0.0
   attn_dropout_prob: 0.0
-  pretrained_model_path : ""
+  pretrained_model_path : '../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/1021_40_step_RandomPush/checkpoint_round_5000.pt'
+  checkpoint_round: 5000
   hidden_size: 64
   item_num : 18357
 train:

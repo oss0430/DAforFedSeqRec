@@ -4,7 +4,6 @@ import sys
 
 import random
 from itertools import combinations
-from typing import List
 
 from federatedscope.core.auxiliaries.utils import setup_seed
 from typing import List, Dict
@@ -31,19 +30,20 @@ parser.add_argument('-t', '--augmentation_type', type=str, default='random_repla
 parser.add_argument('-p', '--replace_probability', type=float, default=0.1)
 parser.add_argument('-d', '--direction', type=str, default='left', choices=['right',
                                                                             'left'])
-parser.add_argument('-ls', '--length_range_start', type = int, default = 1) ## both for cut_middle length min
-parser.add_argument('-le', '--length_range_end', type = int, default = 4) ## both for cut_middle length max
-parser.add_argument('-is', '--item_perturb_range_start', type=int, default=1) ## for random_deletion
-parser.add_argument('-ie', '--item_perturb_range_end', type=int, default=1) ## for random_deletion
-parser.add_argument('-mi', '--mask_token_id', type=int, default=0) ## only for random_masking
+parser.add_argument('-ls', '--length_range_start', type = int, default = 1) # both for cut_middle length min
+parser.add_argument('-le', '--length_range_end', type = int, default = 4) # both for cut_middle length max
+parser.add_argument('-is', '--item_perturb_range_start', type=int, default=1) # for random_deletion
+parser.add_argument('-ie', '--item_perturb_range_end', type=int, default=1) # for random_deletion
+parser.add_argument('-mi', '--mask_token_id', type=int, default=0) # only for random_masking
 parser.add_argument('-n', '--number_of_generation', type=int, default=60)
 parser.add_argument('-s', '--seed', type=int, default=42)
+parser.add_argument('-f', '--fix_length', type=bool, default=True) # for random deletion and cut_middle.
 
 parser.add_argument('-no_org', '--no_original', type = bool, default = True)
 
 args = parser.parse_args()
 
-## ML-1m configurations
+# ML-1m configurations
 ml_1m_configs = {
     "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/ml-1m/split/train.csv',
     "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/ml-1m/',
@@ -55,7 +55,7 @@ ml_1m_configs = {
     "min_sequence_length" : 3
 }
 
-## Amazon_Beauty configurations
+# Amazon_Beauty configurations
 amazon_beauty_configs = {
     "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/split/train.csv',
     "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/',
@@ -67,7 +67,7 @@ amazon_beauty_configs = {
     "min_sequence_length" : 3
 }
 
-## Amazon_Sports configurations
+# Amazon_Sports configurations
 amazon_sports_configs = {
     "train_dataframe_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/split/train.csv',
     "result_branch_path" : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/',
@@ -145,7 +145,7 @@ class AugmentationGenerator :
             'list_of_augmented' :[]
         }
         full_sequence_loader = DataLoader(self.full_sequence_dataset, batch_size=1, shuffle=False)
-        ## Generate a augmented training sets
+        # Generate a augmented training sets
         for data_batch in tqdm(full_sequence_loader, desc='Generating augmented dataset') :
             user_id = data_batch['user_id']
             full_sequence = data_batch['full_sequence'].squeeze(0)
@@ -180,7 +180,7 @@ class RandomReplacingAugmentation(AugmentationGenerator) :
         max_item_ids : int,
         probablity : float
     ) -> torch.Tensor:
-        ## Replace the item_sequence with random items
+        # Replace the item_sequence with random items
         mask = torch.rand(item_sequence.size()) < probablity
         random_values = torch.randint(1, max_item_ids+1, item_sequence.size())
 
@@ -209,14 +209,18 @@ class CuttingAugmentation(AugmentationGenerator) :
     ) :
         self.direction = direction
         
-        super(CuttingAugmentation, self).__init__(full_sequence_dataset, number_of_generation, max_item_ids, max_sequence_length, min_sequence_length)
+        super(CuttingAugmentation, self).__init__(full_sequence_dataset, 
+                                                  number_of_generation, 
+                                                  max_item_ids, 
+                                                  max_sequence_length, 
+                                                  min_sequence_length)
     
     
     def generate_for_sequence(
         self,
         item_sequence : torch.Tensor
     ) -> List[torch.Tensor]:
-        ## Cut the sequence
+        # Cut the sequence
         sequence_length = len(item_sequence)
         if sequence_length >= self.max_sequence_length and self.direction == 'left' :
             cut_range = list(range(sequence_length - self.max_sequence_length, sequence_length))
@@ -235,7 +239,7 @@ class CuttingAugmentation(AugmentationGenerator) :
                 cut_sequences.append(augmented_seq)
                 i = i + 1
         else :  
-            cut_range.pop(0) ## remove the first element
+            cut_range.pop(0) # remove the first element
             while i < self.number_of_generation :
                 if len(cut_range) < self.min_sequence_length :
                     break
@@ -254,7 +258,7 @@ class ShuffleAugmentation(AugmentationGenerator) :
         self,
         item_sequence : torch.Tensor
     ) -> List[torch.Tensor]:
-        ## Shuffle the sequence
+        # Shuffle the sequence
         shuffled_sequences = []
 
         for i in range(self.number_of_generation) :
@@ -293,12 +297,12 @@ class RandomSequencePushing(AugmentationGenerator) :
         self,
         item_sequence : torch.Tensor
     ) -> List[torch.Tensor]:
-        ## Push the sequence
+        # Push the sequence
         sequence_length = len(item_sequence)
         if sequence_length >= self.max_sequence_length :
-            return [] ## if the sequence is already at the maximum length, return empty list
+            return [] # if the sequence is already at the maximum length, return empty list
         
-        ## cut the push_length_range if neccessary
+        # cut the push_length_range if neccessary
         minimum_result_length = sequence_length + self.push_length_range[0]
         maximum_result_length = sequence_length + self.push_length_range[1]
     
@@ -334,7 +338,7 @@ class SelfSampledSequencePushing(RandomSequencePushing) :
         length : int,
         item_sequence : torch.Tensor
     ) -> torch.Tensor:
-        ## sample the item from the given sequence to make new sequence
+        # sample the item from the given sequence to make new sequence
        
         unique_items = item_sequence.unique()
         pushing_sequence_where = torch.randint(0, unique_items.size(0), (length,))
@@ -392,10 +396,10 @@ class RandomMasking(AugmentationGenerator):
         self,
         item_sequence : torch.Tensor
     ) -> List[torch.Tensor]:
-        ## Shuffle the sequence
-        ## Randomly Delete N items
-        ## first check if the sequence is already at the minimum length
-        ## and maximum deleteion count
+        # Shuffle the sequence
+        # Randomly Delete N items
+        # first check if the sequence is already at the minimum length
+        # and maximum deleteion count
         sequence_length = len(item_sequence)
         max_item_at_disposal = max(sequence_length - self.min_sequence_length, 0)
         if max_item_at_disposal < self.min_mask_count :
@@ -446,7 +450,8 @@ class CutMiddleAugmentation(AugmentationGenerator):
         max_sequence_length : int,
         min_sequence_length : int,
         cut_count_min : int,
-        cut_count_max : int
+        cut_count_max : int,
+        fix_length : bool
     ) :
         self.cut_count_min = cut_count_min
         self.cut_count_max = cut_count_max
@@ -458,7 +463,7 @@ class CutMiddleAugmentation(AugmentationGenerator):
         item_sequence : torch.Tensor
     ) -> List[torch.Tensor]:
         
-        ## check for appropriate cut range
+        # check for appropriate cut range
         sequence_length = len(item_sequence)
         max_item_at_disposal = max(sequence_length - self.min_sequence_length, 0)
         if max_item_at_disposal < self.cut_count_min :
@@ -496,7 +501,8 @@ class RandomDeletion(AugmentationGenerator):
         max_sequence_length : int,
         min_sequence_length : int,
         delete_count_min : int,
-        delete_count_max : int
+        delete_count_max : int,
+        fix_length : bool
     ) :
         self.delete_count_min = delete_count_min
         self.delete_count_max = delete_count_max
@@ -532,10 +538,10 @@ class RandomDeletion(AugmentationGenerator):
         self,
         item_sequence : torch.Tensor
     ) -> List[torch.Tensor]:
-        ## Shuffle the sequence
-        ## Randomly Delete N items
-        ## first check if the sequence is already at the minimum length
-        ## and maximum deleteion count
+        # Shuffle the sequence
+        # Randomly Delete N items
+        # first check if the sequence is already at the minimum length
+        # and maximum deleteion count
         sequence_length = len(item_sequence)
         max_item_at_disposal = max(sequence_length - self.min_sequence_length, 0)
         if max_item_at_disposal < self.delete_count_min :
@@ -579,14 +585,14 @@ def sequence_to_tokens(
     full_sequence : List[int]
 ) :   
     full_sequence_np_array = np.array(full_sequence)
-    ## reshape vertiaclly
+    # reshape vertiaclly
     full_sequence_np_array = full_sequence_np_array.reshape(-1, 1)
     # concat user id and timestamp
     # timestamp's are incremented by 1
     user_id_np_array = np.full((full_sequence_np_array.shape[0], 1), user_id)
     timestamp_np_array = np.arange(1, full_sequence_np_array.shape[0] + 1).reshape(-1, 1)
     
-    ## Concatenate the user_id, item_id, and timestamp
+    # Concatenate the user_id, item_id, and timestamp
     resulted_np_array = np.concatenate([user_id_np_array, full_sequence_np_array, timestamp_np_array], axis=1)
     
     return resulted_np_array
@@ -601,7 +607,7 @@ def turn_result_into_dataframe(
     augmentation_column : str = "augmentation_idx:token",
     remove_original : bool = True
 ) :
-    ## Turn the resulted dataset into a dataframe
+    # Turn the resulted dataset into a dataframe
     user_id_per_tokenized_sequences = []
     
     for i in tqdm(range(len(resulted_dataset['user_id'])), desc='Converting to dataframe') :
@@ -611,7 +617,7 @@ def turn_result_into_dataframe(
         original_sequence = resulted_dataset['original'][i]
         list_of_augmented = resulted_dataset['list_of_augmented'][i]
         
-        ## Remove Original sequence when augmented sequence exists
+        # Remove Original sequence when augmented sequence exists
         can_remove_org = False
         if remove_original :
             if len(list_of_augmented) > 0 :
@@ -621,28 +627,28 @@ def turn_result_into_dataframe(
         if can_remove_org :
             current_augmentation_index = -1
         else :
-            ## initilize with original sequence
+            # initilize with original sequence
             original_sequence_tokenized = sequence_to_tokens(user_id, original_sequence)
             current_augmentation_index = 0        
             original_sequence_tokenized = np.concatenate([original_sequence_tokenized, np.full((original_sequence_tokenized.shape[0], 1), current_augmentation_index)], axis=1)
             users_tokenized_sequences.append(original_sequence_tokenized)
         
-        ## column adding to augmented sequences tokenized
+        # column adding to augmented sequences tokenized
         for current_augmented_sequence in list_of_augmented :
             current_augmentation_index = current_augmentation_index + 1
             tokenized_augmented_sequence = sequence_to_tokens(user_id, current_augmented_sequence)
-            ## add column of augmentation index
+            # add column of augmentation index
             tokenized_augmented_sequence = np.concatenate([tokenized_augmented_sequence, np.full((tokenized_augmented_sequence.shape[0], 1), current_augmentation_index)], axis=1)
             users_tokenized_sequences.append(tokenized_augmented_sequence)
-            ##concatenate to original vertically
+            #concatenate to original vertically
         
         tokenized_sequences = np.concatenate(users_tokenized_sequences, axis=0)
         user_id_per_tokenized_sequences.append(tokenized_sequences)
     
-    ## Concatenate all the tokenized sequences
+    # Concatenate all the tokenized sequences
     user_id_per_tokenized_sequences = np.concatenate(user_id_per_tokenized_sequences, axis=0)
     
-    ## Add columns to the dataframe
+    # Add columns to the dataframe
     return pd.DataFrame(user_id_per_tokenized_sequences, columns=[user_column, item_column, timestamp_column, augmentation_column])
 
 
@@ -661,7 +667,7 @@ def load_dataset_configs(
 
 def __main__():
     
-    ## Set the configurations
+    # Set the configurations
     direction = args.direction
     augmentation_column = args.aug_column_name
     augmentation_prob = args.replace_probability
@@ -670,6 +676,8 @@ def __main__():
     length_range = [args.length_range_start, args.length_range_end]
     item_pertrub_range = [args.item_perturb_range_start, args.item_perturb_range_end]
     mask_token_id = args.mask_token_id
+    fixed_length = args.fix_length
+    
     seed = args.seed
     user_gpu = True
     gpu_id = 0
@@ -695,20 +703,28 @@ def __main__():
             leaf_folder = f"{leaf_folder}_{augmentation_prob}"
         elif augmentation_type == 'cutting' :
             leaf_folder = f"{leaf_folder}_{direction}"
-        elif augmentation_type == 'random_pushing' or augmentation_type == 'self_sampled_pushing'\
-            or augmentation_type == 'cut_middle' :
+        elif augmentation_type == 'random_pushing' or augmentation_type == 'self_sampled_pushing':
             leaf_folder = f"{leaf_folder}_{length_range[0]}_{length_range[1]}"
+        elif augmentation_type == 'cut_middle' :
+            leaf_folder = f"{leaf_folder}_{length_range[0]}_{length_range[1]}"
+            if fixed_length :
+                leaf_folder = f"{leaf_folder}_fixed_length"
         elif  augmentation_type == 'random_masking' or augmentation_type == 'random_deletion':
             leaf_folder = f"{leaf_folder}_{item_pertrub_range[0]}_{item_pertrub_range[1]}"
+            if fixed_length and augmentation_type == 'random_deletion':
+                leaf_folder = f"{leaf_folder}_fixed_length"
         save_path_dir = result_branch_path + leaf_folder
-        ## remove the original sequence if we can
+        # remove the original sequence if we can
         if args.no_original :
             save_path_dir = save_path_dir + '_no_original'
         else :
             save_path_dir = save_path_dir + '_with_original'
     
     train_dataframe = pd.read_csv(train_dataframe_path)
-    full_sequence_dataset = SequenceDataset(train_dataframe, user_column, item_column, timestamp_column)
+    full_sequence_dataset = SequenceDataset(train_dataframe,
+                                            user_column,
+                                            item_column,
+                                            timestamp_column)
     
     print("Augmentation type : ", augmentation_type)
     if augmentation_type == 'random_replacing' :

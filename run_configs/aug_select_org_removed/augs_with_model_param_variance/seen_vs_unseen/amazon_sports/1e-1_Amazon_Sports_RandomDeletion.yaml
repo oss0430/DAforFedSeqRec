@@ -5,12 +5,13 @@ early_stop:
 federate:
   mode: standalone
   method : shadow
+  unseen_clients_rate : 0.1
   total_round_num: 30000
   client_num: 16 # 6040
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/1021_40_step_RandomMasking.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/1026_step_20_unseen_1e-1_RandomDeletion.pt"
   standalone_args :
     use_shadow : True
     shadow_client_num : 35598
@@ -35,7 +36,7 @@ data:
     is_multiple : True
     aug_types_count : 2 ## aug types
     df_paths : ['../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/split',
-                '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/random_masking_1_5_no_original']
+                '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/random_deletion_1_5_no_original']
 dataloader :
   type : base
   batch_size : 1
@@ -43,13 +44,13 @@ model:
   type: sasrec
   hidden_dropout_prob: 0.0
   attn_dropout_prob: 0.0
-  pretrained_model_path : '../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/1021_40_step_RandomMasking/checkpoint_round_5000.pt'
-  checkpoint_round: 5000
+  pretrained_model_path : '../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/1026_step_20_unseen_1e-1_RandomDeletion/checkpoint_round_19000.pt'
+  checkpoint_round: 19000
   hidden_size: 64
   item_num : 18357
 train:
   batch_or_epoch : 'batch'
-  local_update_steps: 40
+  local_update_steps: 20
   optimizer:
     lr: 0.01
 criterion:

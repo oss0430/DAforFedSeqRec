@@ -1,32 +1,29 @@
 use_gpu: True
-device: 1
+device: 0
 early_stop:
   patience: 1000
 federate:
   mode: standalone
   method : shadow
-  total_round_num: 30000
+  unseen_clients_rate : 0.3
+  total_round_num: 40000
   client_num: 16 # 6040
   sample_client_num: 16
   sample_client_rate: -1.0
   make_global_eval : True
-  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/1021_40_step_RandomMasking.pt"
+  save_to: "../../../../data1/donghoon/FederatedScopeData/exp/ml-1m_hidden_64_lr1e-2/1027_step_20_unseen_3e-1_cut_middle.pt"
   standalone_args :
     use_shadow : True
-    shadow_client_num : 35598
+    shadow_client_num : 6040
     use_one_hop_eval : True
 aggregator:
   robust_rule : fedavg_variance
 data:
-  root: ../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/
-  partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/split' ## not going to use
+  root: ../../../../data1/donghoon/FederatedScopeData/ml-1m/
+  partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/ml-1m/split'
   type: sr_data
   consistent_label_distribution: False ## This can be only used when the datasets are sorted by user_ids
   splitter : sr_splitter
-  min_sequence_length: 5
-  max_sequence_length: 50
-  user_num: 35598
-  item_num: 18357
   augmentation_args :
     augmentation_column : 'augmentation_idx:token'
     use_augmentation : True
@@ -34,8 +31,9 @@ data:
     is_zero_original : False
     is_multiple : True
     aug_types_count : 2 ## aug types
-    df_paths : ['../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/split',
-                '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/random_masking_1_5_no_original']
+    df_paths : ['../../../../data1/donghoon/FederatedScopeData/ml-1m/split',
+                '../../../../data1/donghoon/FederatedScopeData/ml-1m/cut_middle_1_20_no_original'
+                ]
 dataloader :
   type : base
   batch_size : 1
@@ -43,13 +41,12 @@ model:
   type: sasrec
   hidden_dropout_prob: 0.0
   attn_dropout_prob: 0.0
-  pretrained_model_path : '../../../../data1/donghoon/FederatedScopeData/exp/amazon_sports/1021_40_step_RandomMasking/checkpoint_round_5000.pt'
-  checkpoint_round: 5000
+  pretrained_model_path : '../../../../data1/donghoon/FederatedScopeData/exp/ml-1m_hidden_64_lr1e-2/1027_step_20_unseen_3e-1_cut_middle/checkpoint_round_8000.pt'
+  checkpoint_round: 8000
   hidden_size: 64
-  item_num : 18357
 train:
   batch_or_epoch : 'batch'
-  local_update_steps: 40
+  local_update_steps: 20
   optimizer:
     lr: 0.01
 criterion:
