@@ -1250,7 +1250,7 @@ class StandAloneShadowRunner(StandaloneRunner):
         ## now merge by split
         seen_dataset_indices = {"train": [], "val": [], "test": []}
         unseen_dataset_indices = {"train": [], "val": [], "test": []}
-        for split in ['train', 'val', 'test']:
+        for split in ['val', 'test']: #['train', 'val', 'test']:
             sub_sample_indices = []
             for data in unseen_data:
                 sub_sample_indices = sub_sample_indices + list(data[split].dataset.indices)
@@ -1261,6 +1261,11 @@ class StandAloneShadowRunner(StandaloneRunner):
                 sub_sample_indices = sub_sample_indices + list(data[split].dataset.indices)
             seen_dataset_indices[split] = sub_sample_indices
 
+        ## sort before send
+        for split in ['val', 'test']:
+            unseen_dataset_indices[split] = sorted(unseen_dataset_indices[split])
+            seen_dataset_indices[split] = sorted(seen_dataset_indices[split])
+        
         return seen_dataset_indices, unseen_dataset_indices
         
         
