@@ -7,8 +7,7 @@ from typing import List, Dict, Tuple
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_path', type=str, default= '../../../../data1/donghoon/FederatedScopeData/Amazon_Beauty_5core/split backup/test.csv')
-                    #required=True)
+parser.add_argument('--data_path', type=str, required=True)
 parser.add_argument('--user_column', type=str, default='user_id:token')
 parser.add_argument('--item_column', type=str, default='item_id:token')
 parser.add_argument('--output_path', type=str, default='item_statistics.txt')
@@ -42,8 +41,21 @@ def get_user_sequence_length_stats(
     mean_sequence_length = user_per_sequence_length.mean()
     max_sequence_length = user_per_sequence_length.max()
     min_sequence_length = user_per_sequence_length.min()
-    
-    return  f"mean length : {mean_sequence_length}\nmax length : {max_sequence_length}\nmin length : {min_sequence_length}\n"
+    std_length = user_per_sequence_length.std()
+    return  f"mean length : {mean_sequence_length}\nmax length : {max_sequence_length}\nmin length : {min_sequence_length}\nstd length : {std_length}\n"
+
+def get_user_via_item_unique_count(
+    df : pd.DataFrame,
+    user_col : str,
+    item_col : str
+) :
+    user_item_count = df.groupby(user_col)[item_col].nunique()
+    mean_user_item_count = user_item_count.mean()
+    max_user_item_count = user_item_count.max()
+    min_user_item_count = user_item_count.min()
+    std_user_item_count = user_item_count.std()
+    return f"mean user item count : {mean_user_item_count}\nmax user item count : {max_user_item_count}\nmin user item count : {min_user_item_count}\nstd user item count : {std_user_item_count}\n"
+
 
 
 def data_statistics(
@@ -113,7 +125,7 @@ if __name__ == '__main__' :
     ## User Statistics
     result = result + f"Number of users : {data[args.user_column].nunique()}\n"
     result = result + get_user_sequence_length_stats(data, args.user_column)
-    
+    result = result + get_user_via_item_unique_count(data, args.user_column, args.item_column)
     ## Item Statistics
     result = result + data_statistics(item_id_counts)
     result = result + get_top_and_bottom_k_item_ids(item_id_counts, args.k)
