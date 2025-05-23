@@ -181,6 +181,10 @@ class BaseRunner(object):
             device=self._server_device,
             unseen_clients_id=self.unseen_clients_id,
             **kw)
+        
+        if self.cfg.model.checkpoint_round > 0:
+            server.state = self.cfg.model.checkpoint_round
+            
         if self.cfg.nbafl.use:
             from federatedscope.core.trainers.trainer_nbafl import \
                 wrap_nbafl_server

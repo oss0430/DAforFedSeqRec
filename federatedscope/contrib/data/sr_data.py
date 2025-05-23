@@ -479,14 +479,12 @@ class SequentialRecommendationTrainsetWithMultipleAugmentation(torch.utils.data.
             total_length += len(dataset)
         return total_length
     
-    
     def __getitem__(self, idx : int) -> Tuple[torch.Tensor,torch.Tensor,torch.Tensor] :
         for dataset in self.augmentation_datasets:
             if idx < len(dataset):
                 return dataset[idx]
             else :
                 idx -= len(dataset)
-    
     
     def construct_full_subset_range(self):
         full_subset_range_via_augmentation = []
@@ -533,7 +531,9 @@ class SequentialRecommendationTrainsetWithMultipleAugmentation(torch.utils.data.
             
     
     def get_full_subset_range(self):
-        
+        """
+        returns a list of subset indices for each user
+        """
         list_of_ranges = []
         import numpy as np
         

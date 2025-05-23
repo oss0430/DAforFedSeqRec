@@ -96,10 +96,12 @@ class SASRecTrainer(GeneralTorchTrainer):
         ctx.loss_batch = CtxVar(ctx.criterion(logits, target_item), LIFECYCLE.BATCH)
         
         ctx.y_true = CtxVar(target_item, LIFECYCLE.BATCH)
-        ## For Better Memory Utilization we only store topn predictions indices
-        _, top_k_indices = torch.topk(logits, TOPN, dim=1)
-        ctx.y_pred = CtxVar(top_k_indices, LIFECYCLE.BATCH)
-        ## ctx.y_pred = CtxVar(logits, LIFECYCLE.BATCH) ## Note since it is not classification task we don't use y_prob
+        
+        ## For Better Memory Utilization we only store top-N predictions
+        ## only for evaluation
+        if ctx.cur_mode not in [MODE.TRAIN, MODE.FINETUNE]:
+            _, top_k_indices = torch.topk(logits, TOPN, dim=1)
+            ctx.y_pred = CtxVar(top_k_indices, LIFECYCLE.BATCH)
 
         ctx.batch_size = CtxVar(len(target_item), LIFECYCLE.BATCH)
 
@@ -111,7 +113,8 @@ class SASRecTrainer(GeneralTorchTrainer):
         ctx.loss_regular_total += float(ctx.get("loss_regular", 0.))
         # cache prediction for evaluate
         ctx.ys_true.append(ctx.y_true.detach().cpu().numpy())
-        ctx.ys_pred.append(ctx.y_pred.detach().cpu().numpy())
+        if ctx.cur_mode not in [MODE.TRAIN, MODE.FINETUNE]:
+            ctx.ys_pred.append(ctx.y_pred.detach().cpu().numpy())
     
     
     def _hook_on_fit_end(self, ctx):
@@ -120,7 +123,10 @@ class SASRecTrainer(GeneralTorchTrainer):
         We don't use ys_prob but ys_pred since it is not classification task
         """
         ctx.ys_true = CtxVar(np.concatenate(ctx.ys_true), LIFECYCLE.ROUTINE)
-        ctx.ys_pred = CtxVar(np.concatenate(ctx.ys_pred), LIFECYCLE.ROUTINE)
+        if ctx.cur_mode in [MODE.TRAIN, MODE.FINETUNE]:
+            ctx.ys_pred = CtxVar(np.ones(1), LIFECYCLE.ROUTINE)
+        else :
+            ctx.ys_pred = CtxVar(np.concatenate(ctx.ys_pred), LIFECYCLE.ROUTINE)
         results = ctx.monitor.eval(ctx)
         setattr(ctx, 'eval_metrics', results)
         
