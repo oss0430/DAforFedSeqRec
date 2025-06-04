@@ -12,7 +12,7 @@ federate:
   make_global_eval : True
   save_to: "sports_20_step_NoAug.pt"
 aggregator:
-  robust_rule : fedavg_variance
+  robust_rule : fedavg
 data:
   root: ../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/
   partitioned_df_path : '../../../../data1/donghoon/FederatedScopeData/Amazon_Sports_and_Outdoors_5core/split'
